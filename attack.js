@@ -1,9 +1,9 @@
 // attack.js
 const axios = require('axios');
 
-const TARGET = 'http://localhost:5000/api/search?query=a';
-const CONCURRENT = 50;
-const DURATION_MS = 5000;
+const TARGET = 'https://ctrack-production-097b.up.railway.app/api/search?query=a'; // changed
+const CONCURRENT = 20; 
+const DURATION_MS = 4000; 
 
 async function flood() {
   const start = Date.now();
@@ -18,11 +18,14 @@ async function flood() {
       } catch {
         failed++;
       }
+      if (sent % 20 === 0) {           // new
+        console.log(`sent=${sent} ok=${ok} failed=${failed}`); // new
+      }                                 // new
     }
   }
 
   await Promise.all(Array.from({ length: CONCURRENT }, worker));
-  console.log(`sent=${sent} ok=${ok} failed=${failed} in ${DURATION_MS}ms`);
+  console.log(`FINAL: sent=${sent} ok=${ok} failed=${failed} in ${DURATION_MS}ms`);
 }
 
-flood();
+flood();    
