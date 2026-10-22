@@ -9,7 +9,7 @@ async function flood() {
   const start = Date.now();
   let sent = 0, ok = 0, failed = 0;
 
-  // Fire requests continuously without waiting for responses to finish
+  
   const interval = setInterval(() => {
     if (Date.now() - start >= DURATION_MS) {
       clearInterval(interval);
@@ -25,7 +25,7 @@ async function flood() {
     }
   }, 10);
 
-  // Wait for the duration + extra time for remaining requests to settle
+ 
   await new Promise((r) => setTimeout(r, DURATION_MS + 2500));
   console.log(`FINAL: sent=${sent} ok=${ok} failed=${failed} in ${DURATION_MS}ms`);
 }
