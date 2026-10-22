@@ -1,36 +1,44 @@
-@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Nunito+Sans:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Manrope:wght@400;500;600;700;800&display=swap');
 
-/* ── CSS VARIABLES ── */
 :root {
-  --g900: #0a2e1a;
-  --g800: #145a38;
-  --g700: #1a7a4a;
-  --g600: #22a05f;
-  --g500: #2dc46e;
-  --g400: #4dd882;
-  --g300: #7ee8a2;
-  --g100: #d6f5e3;
-  --g50: #edfaf3;
-  --lime: #a8e63d;
-  --white: #fff;
-  --gray100: #f4f6f4;
-  --gray200: #e5ebe5;
-  --gray400: #9aaa9a;
-  --gray600: #5a6b5a;
-  --gray800: #2c3a2c;
-  --danger: #e84c4c;
-  --warn: #f5a623;
-  --font: 'Nunito', sans-serif;
-  --r-sm: 10px;
-  --r-md: 16px;
-  --r-lg: 24px;
-  --r-xl: 32px;
-  --sh-sm: 0 2px 8px rgba(13, 51, 32, 0.08);
-  --sh-md: 0 4px 20px rgba(13, 51, 32, 0.12);
-  --sh-lg: 0 8px 40px rgba(13, 51, 32, 0.18);
+  --navy-950: #06182c;
+  --navy-900: #0a2340;
+  --navy-800: #103258;
+  --navy-700: #174573;
+  --blue-600: #1f5fbf;
+  --blue-500: #2f74d0;
+  --blue-100: #e7f0fc;
+  --gold-600: #a8871c;
+  --gold-500: #c9a227;
+  --gold-400: #ddb84b;
+  --gold-100: #f7efd2;
+  --ink-900: #10243d;
+  --ink-700: #334a63;
+  --ink-500: #6b7c93;
+  --ink-400: #8c9aab;
+  --line: #e3e9f2;
+  --line-strong: #d4ddea;
+  --bg: #f3f6fb;
+  --card: #ffffff;
+  --success: #1c8c5e;
+  --success-soft: #e6f6ee;
+  --warning: #b87413;
+  --warning-soft: #fdf3df;
+  --danger: #c43d4b;
+  --danger-soft: #fdecef;
+  --violet: #6d5bd0;
+  --violet-soft: #efecfb;
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  --radius-xl: 30px;
+  --shadow-sm: 0 2px 10px rgba(16, 36, 61, 0.05);
+  --shadow-md: 0 12px 30px rgba(16, 36, 61, 0.09);
+  --shadow-lg: 0 24px 60px rgba(6, 24, 44, 0.2);
+  --font-body: 'Manrope', system-ui, -apple-system, sans-serif;
+  --font-display: 'DM Serif Display', Georgia, serif;
 }
 
-/* ── RESET & GLOBAL ── */
 *,
 *::before,
 *::after {
@@ -42,61 +50,90 @@
 html,
 body,
 #root {
-  height: 100%;
-  background: var(--gray100);
-  font-family: var(--font);
-  color: var(--gray800);
-  -webkit-font-smoothing: antialiased;
+  min-height: 100%;
 }
 
 body {
-  margin: 0;
-  padding: 0;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(31, 95, 191, 0.14), transparent 38%),
+    radial-gradient(circle at 85% 90%, rgba(201, 162, 39, 0.12), transparent 34%),
+    #e9eef6;
+  color: var(--ink-900);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* ── LAYOUT ── */
+button {
+  border: none;
+  outline: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  outline: none;
+}
+
+a {
+  color: inherit;
+}
+
 .shell {
-  max-width: 430px;
+  width: 100%;
+  max-width: 460px;
   min-height: 100dvh;
   margin: 0 auto;
-  background: var(--white);
+  background: var(--bg);
   position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-shadow: 0 0 70px rgba(6, 24, 44, 0.16);
 }
 
 .page {
   flex: 1;
   overflow-y: auto;
-  padding-bottom: 80px;
+  padding-bottom: 92px;
+  scrollbar-width: none;
+}
+
+.page::-webkit-scrollbar {
+  display: none;
 }
 
 .page-full {
   flex: 1;
   overflow-y: auto;
+  scrollbar-width: none;
 }
 
-/* ── ELEMENTS ── */
-button {
-  cursor: pointer;
-  font-family: var(--font);
-  border: none;
-  outline: none;
-  background: none;
+.page-full::-webkit-scrollbar {
+  display: none;
 }
 
-input,
-textarea {
-  font-family: var(--font);
-  outline: none;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-/* ── ANIMATIONS ── */
 @keyframes fadeUp {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
@@ -104,10 +141,19 @@ textarea {
   }
 }
 
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes scaleIn {
   from {
     opacity: 0;
-    transform: scale(0.92);
+    transform: scale(0.95);
   }
   to {
     opacity: 1;
@@ -118,30 +164,31 @@ textarea {
 @keyframes pulse {
   0%,
   100% {
-    transform: scale(1);
     opacity: 1;
+    transform: scale(1);
   }
   50% {
-    transform: scale(1.15);
-    opacity: 0.7;
+    opacity: 0.55;
+    transform: scale(1.25);
   }
 }
 
-@keyframes truckFloat {
-  0%,
-  100% {
-    transform: translateX(-6px);
-  }
-  50% {
-    transform: translateX(6px);
-  }
-}
-
-@keyframes fadeIn {
+@keyframes slideDown {
   from {
     opacity: 0;
+    transform: translateY(-10px);
   }
   to {
     opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
   }
 }

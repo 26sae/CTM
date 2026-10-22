@@ -1,124 +1,167 @@
 import React, { useState } from 'react';
-import { API_BASE_URL } from '../constants';
+import { api } from '../api';
+import { BANK } from '../constants';
+import BrandMark from '../components/shared/BrandMark';
+import Icon from '../components/Icons';
 
-function LoginPage({ onNavigate, onLogin }) {
+const DEMO_ACCOUNTS = [
+  {
+    label: 'Admin',
+    email: 'admin@binangonanbank.test',
+    password: 'Admin@123',
+  },
+  {
+    label: 'Customer',
+    email: 'customer001@binangonanbank.test',
+    password: 'password123',
+  },
+];
+
+export default function LoginPage({ onNavigate, onLogin }) {
   const [form, setForm] = useState({ email: '', password: '' });
-  const [err, setErr] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  
-  // 1. Add visibility state
-  const [showPass, setShowPass] = useState(false);
 
-  const submit = async () => {
+  const submit = async (event) => {
+    event?.preventDefault();
+
     if (!form.email || !form.password) {
-      setErr('Please fill in all fields.');
+      setError('Enter your email address and password.');
       return;
     }
 
-    setErr('');
+    setError('');
     setLoading(true);
+
     try {
-      const response = await fetch(`${API_BASE_URL}/api/login`, {
+      const data = await api('/api/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Invalid email or password.');
 
-      const user = data.user || data;
-      onLogin({
-        id: user.id,
-        email: user.email || form.email,
-        name: user.name || (user.email || form.email).split('@')[0],
-        role: user.role || 'user',
-      });
-    } catch (error) {
-      setErr(error.message || 'Unable to sign in. Please try again.');
+      onLogin(data.user);
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to sign in.');
     } finally {
       setLoading(false);
     }
   };
 
-  // 2. Reuse the styling for the icon positioning
-  const eyeButtonStyle = {
-    position: 'absolute',
-    right: '12px',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    fontSize: '1.2rem',
-    color: '#666',
-    display: 'flex',
-    alignItems: 'center',
-    padding: '0',
-    zIndex: 2
+  const fillDemo = (account) => {
+    setForm({ email: account.email, password: account.password });
+    setError('');
   };
 
   return (
     <div className="auth-page page-full">
-      <div className="auth-hdr">
-        <div className="auth-hdr-blob" />
-        <button className="back-btn" onClick={() => onNavigate('startup')}>
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path
-              d="M12 4L6 10L12 16"
-              stroke="white"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-        <h2>Welcome back</h2>
-        <p>Sign in to CleanTrack</p>
-      </div>
-      <div className="auth-body">
-        <div className="auth-card">
-          <div className="fg">
-            <label>Email</label>
-            <input
-              type="email"
-              placeholder="you@example.com"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-            />
+      <div className="auth-hero">
+        <div className="auth-hero-inner">
+          <button className="round-button light auth-back" onClick={() => onNavigate('startup')} aria-label="Back">
+            <Icon name="chevronLeft" size={19} />
+          </button>
+
+          <div className="brand-lockup">
+            <BrandMark size={48} />
+            <div className="brand-lockup-text" style={{ color: 'white' }}>
+              <strong>{BANK.shortName}</strong>
+              <span style={{ color: 'rgba(255,255,255,.48)' }}>{BANK.location}</span>
+            </div>
           </div>
 
-          {/* 3. Wrap Password input in a relative div */}
-          <div className="fg" style={{ position: 'relative' }}>
-            <label>Password</label>
-            <div style={{ position: 'relative' }}>
+          <div className="auth-hero-copy">
+            <span className="eyebrow">Online banking</span>
+            <h1>Welcome back.</h1>
+            <p>Sign in to view your balances, statements, and recent account activity.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="auth-body">
+        <form className="auth-card" onSubmit={submit}>
+          <div className="auth-title">
+            <h2>Sign in</h2>
+            <p>Use your Binangonan Bank online credentials.</p>
+          </div>
+
+          <div className="field">
+            <label htmlFor="login-email">Email address</label>
+            <div className="input-shell with-icon">
+              <Icon name="mail" size={17} className="input-icon" />
               <input
-                type={showPass ? "text" : "password"}
-                placeholder="••••••••"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                style={{ paddingRight: '45px' }} // Room for the icon
+                id="login-email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                value={form.email}
+                onChange={(event) => setForm({ ...form, email: event.target.value })}
               />
-              <button 
-                type="button" 
-                onClick={() => setShowPass(!showPass)} 
-                style={eyeButtonStyle}
+            </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor="login-password">Password</label>
+            <div className="input-shell with-icon with-action">
+              <Icon name="lock" size={17} className="input-icon" />
+              <input
+                id="login-password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                placeholder="Enter your password"
+                value={form.password}
+                onChange={(event) => setForm({ ...form, password: event.target.value })}
+              />
+              <button
+                type="button"
+                className="eye-button"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
-                {showPass ? '👁️' : '🙈'}
+                <Icon name={showPassword ? 'eyeOff' : 'eye'} size={18} />
               </button>
             </div>
           </div>
 
-          {err && <p className="form-err">{err}</p>}
-          <button className="btn-green" onClick={submit} disabled={loading}>
-            {loading ? 'Signing In...' : 'Sign In'}
+          {error && <div className="form-error">{error}</div>}
+
+          <button className="btn btn-primary btn-block" type="submit" disabled={loading}>
+            {loading ? 'Signing in…' : 'Sign in'}
+            {!loading && <Icon name="chevronRight" size={17} />}
           </button>
+
+          <div className="demo-card">
+            <div className="demo-card-head">
+              <Icon name="shield" size={14} />
+              Simulation credentials
+            </div>
+            {DEMO_ACCOUNTS.map((account) => (
+              <div className="demo-row" key={account.email}>
+                <div>
+                  <div style={{ fontWeight: 800 }}>{account.label}</div>
+                  <code>{account.email} / {account.password}</code>
+                </div>
+                <button type="button" className="demo-chip" onClick={() => fillDemo(account)}>
+                  Use
+                </button>
+              </div>
+            ))}
+          </div>
+
           <p className="auth-switch">
-            Don't have an account? <span onClick={() => onNavigate('register')}>Register</span>
+            No online account yet?{' '}
+            <button type="button" onClick={() => onNavigate('register')}>Register</button>
           </p>
+        </form>
+
+        <div className="secure-note" style={{ marginTop: 14 }}>
+          <Icon name="shield" size={15} style={{ flex: 'none', marginTop: 1 }} />
+          <span>This is a fictional bank built for a security simulation. Never enter real credentials.</span>
         </div>
+      </div>
+
+      <div className="auth-footer">
+        {BANK.name} · Member of the fictitious Philippine banking network
       </div>
     </div>
   );
 }
-
-export default LoginPage;

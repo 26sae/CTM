@@ -1,90 +1,122 @@
 import React, { useState } from 'react';
 import SubHeader from '../components/shared/SubHeader';
+import Icon from '../components/Icons';
+import { api } from '../api';
 
-function EditProfilePage({ user, onNavigate, onUpdateUser }) {
+export default function EditProfilePage({ user, onNavigate, onUpdateUser }) {
   const [form, setForm] = useState({
     name: user?.name || '',
-    phone: '',
-    barangay: '',
+    phone: user?.phone || '',
+    address: user?.address || '',
   });
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
 
-  React.useEffect(() => {
-    setForm((prev) => ({
-      ...prev,
-      name: user?.name || '',
-    }));
-  }, [user?.name]);
+  const save = async (event) => {
+    event.preventDefault();
+    setError('');
+    setSuccess('');
 
-  const saveChanges = async () => {
-    setLoading(true);
-    try {
-      if (onUpdateUser) onUpdateUser({ ...user, name: form.name });
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 2000);
-    } catch (error) {
-      console.error('Error updating profile:', error);
+    if (!form.name.trim()) {
+      setError('Your name cannot be empty.');
+      return;
     }
-    setLoading(false);
+
+    setLoading(true);
+
+    try {
+      const data = await api(`/api/users/${user.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(form),
+      });
+      onUpdateUser(data.user);
+      setSuccess('Profile updated successfully.');
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="sub-page page-full">
-      <SubHeader title="Edit Profile" onBack={() => onNavigate('profile')} />
-      <div className="sub-body">
-        <div className="info-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', paddingBottom: '16px', borderBottom: '1px solid var(--gray200)' }}>
-            <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'var(--g100)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem' }}>
-              👤
-            </div>
-            <button style={{ background: 'none', color: 'var(--g700)', fontWeight: '800', fontSize: '.88rem' }}>
-              Change Photo
-            </button>
+      <SubHeader title="Edit profile" subtitle="Personal information" onBack={() => onNavigate('profile')} />
+
+      <form className="sub-content" onSubmit={save}>
+        <div className="panel" style={{ alignItems: 'center', gap: 10 }}>
+          <div className="profile-avatar" style={{ width: 68, height: 68, fontSize: '1.2rem' }}>
+            {form.name
+              .split(' ')
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((part) => part[0]?.toUpperCase())
+              .join('') || 'BB'}
           </div>
-          <div className="fg">
-            <label>Full Name</label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-          </div>
-          <div className="fg">
-            <label>Email</label>
-            <input
-              type="email"
-              value={user?.email || ''}
-              disabled
-              style={{ opacity: 0.6, cursor: 'not-allowed' }}
-            />
-          </div>
-          <div className="fg">
-            <label>Phone</label>
-            <input
-              type="tel"
-              value={form.phone}
-              placeholder="+63 912 345 6789"
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            />
-          </div>
-          <div className="fg">
-            <label>Barangay</label>
-            <input
-              type="text"
-              value={form.barangay}
-              placeholder="Barangay 1"
-              onChange={(e) => setForm({ ...form, barangay: e.target.value })}
-            />
+          <div style={{ textAlign: 'center' }}>
+            <div className="panel-title">{form.name || 'Your name'}</div>
+            <div className="panel-sub">Customer profile</div>
           </div>
         </div>
-        {success && <p style={{ color: 'var(--g600)', textAlign: 'center', fontWeight: '600' }}>✅ Profile updated!</p>}
-        <button className="save-btn" onClick={saveChanges} disabled={loading}>
-          {loading ? 'Saving...' : 'Save Changes'}
+
+        <div className="panel">
+          <div className="form-grid">
+            <div className="field">
+              <label htmlFor="edit-name">Full name</label>
+              <div className="input-shell with-icon">
+                <Icon name="user" size={17} className="input-icon" />
+                <input
+                  id="edit-name"
+                  type="text"
+                  value={form.name}
+                  onChange={(event) => setForm({ ...form, name: event.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="field">
+              <label htmlFor="edit-email">Email address</label>
+              <div className="input-shell with-icon">
+                <Icon name="mail" size={17} className="input-icon" />
+                <input id="edit-email" type="email" value={user?.email || ''} disabled />
+              </div>
+              <span className="field-hint">Email changes require a branch visit.</span>
+            </div>
+
+            <div className="field">
+              <label htmlFor="edit-phone">Mobile number</label>
+              <div className="input-shell with-icon">
+                <Icon name="phone" size={17} className="input-icon" />
+                <input
+                  id="edit-phone"
+                  type="tel"
+                  placeholder="+63 912 345 6789"
+                  value={form.phone}
+                  onChange={(event) => setForm({ ...form, phone: event.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="field">
+              <label htmlFor="edit-address">Home address</label>
+              <textarea
+                id="edit-address"
+                className="textarea"
+                placeholder="Street, barangay, city"
+                value={form.address}
+                onChange={(event) => setForm({ ...form, address: event.target.value })}
+              />
+            </div>
+          </div>
+        </div>
+
+        {error && <div className="form-error">{error}</div>}
+        {success && <div className="form-success">{success}</div>}
+
+        <button className="btn btn-primary btn-block" type="submit" disabled={loading}>
+          {loading ? 'Saving…' : 'Save changes'}
         </button>
-      </div>
+      </form>
     </div>
   );
 }
-
-export default EditProfilePage;

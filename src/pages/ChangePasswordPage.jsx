@@ -1,105 +1,128 @@
 import React, { useState } from 'react';
 import SubHeader from '../components/shared/SubHeader';
+import Icon from '../components/Icons';
+import { api } from '../api';
 
-function ChangePasswordPage({ onNavigate }) {
-  const [form, setForm] = useState({
-    current: '',
-    newPass: '',
-    confirm: '',
-  });
+export default function ChangePasswordPage({ user, onNavigate }) {
+  const [form, setForm] = useState({ current: '', next: '', confirm: '' });
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [err, setErr] = useState('');
-  
-  const [showPass, setShowPass] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-  const changePassword = async () => {
-    setErr('');
-    if (!form.current || !form.newPass || !form.confirm) {
-      setErr('Please fill in all fields.');
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setSuccess('');
+
+    if (!form.current || !form.next || !form.confirm) {
+      setError('Complete all password fields.');
       return;
     }
-    if (form.newPass !== form.confirm) {
-      setErr('New passwords do not match.');
+
+    if (form.next !== form.confirm) {
+      setError('New passwords do not match.');
       return;
     }
-    if (form.newPass.length < 6) {
-      setErr('Password must be at least 6 characters.');
+
+    if (form.next.length < 8) {
+      setError('Your new password must be at least 8 characters.');
       return;
     }
+
     setLoading(true);
+
     try {
-      setSuccess(true);
-      setForm({ current: '', newPass: '', confirm: '' });
-      setTimeout(() => setSuccess(false), 2000);
-    } catch (error) {
-      setErr('Failed to change password. Try again.');
+      await api(`/api/users/${user.id}/password`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          currentPassword: form.current,
+          newPassword: form.next,
+        }),
+      });
+      setForm({ current: '', next: '', confirm: '' });
+      setSuccess('Password changed successfully.');
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
     <div className="sub-page page-full">
-      <SubHeader title="Change Password" onBack={() => onNavigate('profile')} />
-      <div className="sub-body">
-        <div className="info-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          
-          {/* Current Password */}
-          <div className="fg">
-            <label>Current Password</label>
-            <input
-              type={showPass ? "text" : "password"}
-              placeholder="••••••••"
-              value={form.current}
-              onChange={(e) => setForm({ ...form, current: e.target.value })}
-            />
-          </div>
+      <SubHeader title="Change password" subtitle="Account security" onBack={() => onNavigate('profile')} />
 
-          {/* New Password */}
-          <div className="fg">
-            <label>New Password</label>
-            <input
-              type={showPass ? "text" : "password"}
-              placeholder="••••••••"
-              value={form.newPass}
-              onChange={(e) => setForm({ ...form, newPass: e.target.value })}
-            />
-          </div>
+      <form className="sub-content" onSubmit={submit}>
+        <div className="panel">
+          <div className="form-grid">
+            <div className="field">
+              <label htmlFor="current-password">Current password</label>
+              <div className="input-shell with-icon">
+                <Icon name="lock" size={17} className="input-icon" />
+                <input
+                  id="current-password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="Enter current password"
+                  value={form.current}
+                  onChange={(event) => setForm({ ...form, current: event.target.value })}
+                />
+              </div>
+            </div>
 
-          {/* Confirm Password */}
-          <div className="fg">
-            <label>Confirm New Password</label>
-            <input
-              type={showPass ? "text" : "password"}
-              placeholder="••••••••"
-              value={form.confirm}
-              onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-            />
-          </div>
+            <div className="field">
+              <label htmlFor="new-password">New password</label>
+              <div className="input-shell with-icon with-action">
+                <Icon name="lock" size={17} className="input-icon" />
+                <input
+                  id="new-password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  placeholder="At least 8 characters"
+                  value={form.next}
+                  onChange={(event) => setForm({ ...form, next: event.target.value })}
+                />
+                <button
+                  type="button"
+                  className="eye-button"
+                  onClick={() => setShowPassword((value) => !value)}
+                  aria-label={showPassword ? 'Hide passwords' : 'Show passwords'}
+                >
+                  <Icon name={showPassword ? 'eyeOff' : 'eye'} size={18} />
+                </button>
+              </div>
+            </div>
 
-          {/* 2. Toggle Checkbox */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-            <input 
-              type="checkbox" 
-              id="show-pass" 
-              checked={showPass} 
-              onChange={() => setShowPass(!showPass)} 
-              style={{ width: 'auto', cursor: 'pointer' }}
-            />
-            <label htmlFor="show-pass" style={{ fontSize: '14px', cursor: 'pointer', fontWeight: '500' }}>
-              Show Passwords
-            </label>
+            <div className="field">
+              <label htmlFor="confirm-password">Confirm new password</label>
+              <div className="input-shell with-icon">
+                <Icon name="lock" size={17} className="input-icon" />
+                <input
+                  id="confirm-password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  placeholder="Repeat new password"
+                  value={form.confirm}
+                  onChange={(event) => setForm({ ...form, confirm: event.target.value })}
+                />
+              </div>
+            </div>
           </div>
-
-          {err && <p className="form-err">{err}</p>}
-          {success && <p style={{ color: 'var(--g600)', textAlign: 'center', fontWeight: '600' }}>✅ Password changed!</p>}
         </div>
-        <button className="save-btn" onClick={changePassword} disabled={loading}>
-          {loading ? 'Changing...' : 'Change Password'}
+
+        {error && <div className="form-error">{error}</div>}
+        {success && <div className="form-success">{success}</div>}
+
+        <button className="btn btn-primary btn-block" type="submit" disabled={loading}>
+          {loading ? 'Updating…' : 'Update password'}
         </button>
-      </div>
+
+        <div className="secure-note">
+          <Icon name="shield" size={15} style={{ flex: 'none', marginTop: 1 }} />
+          <span>This demo stores passwords in plain text intentionally, as part of the simulation.</span>
+        </div>
+      </form>
     </div>
   );
 }
-
-export default ChangePasswordPage;

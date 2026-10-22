@@ -1,56 +1,61 @@
 import React from 'react';
 import SubHeader from '../components/shared/SubHeader';
+import BrandMark from '../components/shared/BrandMark';
+import Icon from '../components/Icons';
+import { BANK } from '../constants';
 
-function AboutPage({ onNavigate }) {
+export default function AboutPage({ onNavigate }) {
   return (
     <div className="sub-page page-full">
-      <SubHeader title="About CleanTrack" onBack={() => onNavigate('profile')} />
-      <div className="sub-body">
-        <div className="about-logo">
-          <div className="about-logo-icon">
-            <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
-              <path
-                d="M12 30 Q18 18 24 22 Q30 26 36 14"
-                stroke="white"
-                strokeWidth="3"
-                strokeLinecap="round"
-                fill="none"
-              />
-              <circle cx="14" cy="34" r="3" fill="white" />
-              <circle cx="28" cy="34" r="3" fill="white" />
-              <rect x="10" y="30" width="22" height="6" rx="3" fill="white" />
-            </svg>
-          </div>
-          <h2>CleanTrack</h2>
-          <p>Keep your neighborhood clean</p>
+      <SubHeader title="About the bank" subtitle="Who we are" onBack={() => onNavigate('profile')} />
+
+      <div className="sub-content">
+        <div className="about-brand">
+          <BrandMark size={58} variant="gold" />
+          <h2>{BANK.name}</h2>
+          <p>{BANK.tagline}</p>
         </div>
-        <div className="info-card">
-          <h3>App Info</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {[
-              ['Version', '1.0.0'],
-              ['Build', '2026.03.09'],
-              ['Platform', 'Web / Mobile'],
-              ['Developer', 'CleanTrack Team'],
-            ].map(([k, v]) => (
-              <div key={k} className="about-row">
-                <span>{k}</span>
-                <span>{v}</span>
-              </div>
-            ))}
+
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <div className="panel-title">Application details</div>
+              <div className="panel-sub">Fictional banking environment</div>
+            </div>
+            <Icon name="info" size={19} style={{ color: 'var(--ink-400)' }} />
+          </div>
+
+          <div className="info-list">
+            <div className="info-row"><span>Version</span><strong>{BANK.version}</strong></div>
+            <div className="info-row"><span>Platform</span><strong>Web / Mobile</strong></div>
+            <div className="info-row"><span>Head office</span><strong>{BANK.location}</strong></div>
+            <div className="info-row"><span>Currency</span><strong>PHP</strong></div>
+            <div className="info-row"><span>Environment</span><strong>Security simulation</strong></div>
           </div>
         </div>
-        <div className="info-card">
-          <h3>About</h3>
-          <p style={{ fontSize: '.9rem', color: 'var(--gray600)', lineHeight: '1.6' }}>
-            CleanTrack is a community-powered waste management app designed to help residents track garbage trucks,
-            report waste issues, and keep their neighborhoods clean. Built with care for local communities in the
-            Philippines.
+
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <div className="panel-title">A fictional bank</div>
+              <div className="panel-sub">Built for cybersecurity training</div>
+            </div>
+            <Icon name="shield" size={19} style={{ color: 'var(--ink-400)' }} />
+          </div>
+          <p style={{ fontSize: '0.74rem', lineHeight: 1.65, color: 'var(--ink-500)' }}>
+            Binangonan Banking Corporation is a dummy retail banking application created to demonstrate
+            authentication weaknesses, SQL injection, credential stuffing, and denial-of-service exposure.
+            It is not affiliated with any real financial institution.
           </p>
+          <div className="form-error">
+            Do not enter real personal, financial, or login information into this application.
+          </div>
+        </div>
+
+        <div className="secure-note" style={{ justifyContent: 'center' }}>
+          <span>© {new Date().getFullYear()} Binangonan Banking Corporation · Simulation build</span>
         </div>
       </div>
     </div>
   );
 }
-
-export default AboutPage;

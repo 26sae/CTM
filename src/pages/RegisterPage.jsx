@@ -1,196 +1,201 @@
 import React, { useState } from 'react';
-import { API_BASE_URL } from '../constants';
+import { api } from '../api';
+import { BANK } from '../constants';
+import BrandMark from '../components/shared/BrandMark';
+import Icon from '../components/Icons';
 
-function RegisterPage({ onNavigate, onLogin }) {
+export default function RegisterPage({ onNavigate, onLogin }) {
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
-  const [err, setErr] = useState('');
-  const [fieldErrors, setFieldErrors] = useState({ email: '', password: '', confirm: '' });
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  
-  // 1. Add state for visibility
-  const [showPass, setShowPass] = useState(false);
 
   const validateEmail = (email) => {
-    if (!email.includes('@gmail.com')) {
-      return 'Email must be a valid @gmail.com address';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return 'Enter a valid email address.';
     }
     return '';
   };
 
   const validatePassword = (password) => {
-    const hasUppercase = /[A-Z]/.test(password);
-    const hasNumber = /[0-9]/.test(password);
-    if (!hasUppercase || !hasNumber) {
-      return 'Password must contain at least one uppercase letter and one number';
+    if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      return 'Use at least one uppercase letter and one number.';
+    }
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters.';
     }
     return '';
   };
 
   const validateConfirm = (password, confirm) => {
-    if (confirm && password !== confirm) {
-      return 'Passwords do not match';
-    }
+    if (password !== confirm) return 'Passwords do not match.';
     return '';
   };
 
-  const handleEmailBlur = () => {
-    const error = validateEmail(form.email);
-    setFieldErrors({ ...fieldErrors, email: error });
+  const validateForm = () => {
+    const nextErrors = {
+      name: form.name.trim() ? '' : 'Enter your full name.',
+      email: validateEmail(form.email),
+      password: validatePassword(form.password),
+      confirm: validateConfirm(form.password, form.confirm),
+    };
+    setFieldErrors(nextErrors);
+    return Object.values(nextErrors).every((value) => !value);
   };
 
-  const handlePasswordBlur = () => {
-    const error = validatePassword(form.password);
-    setFieldErrors({ ...fieldErrors, password: error });
-  };
+  const submit = async (event) => {
+    event.preventDefault();
 
-  const handleConfirmBlur = () => {
-    const error = validateConfirm(form.password, form.confirm);
-    setFieldErrors({ ...fieldErrors, confirm: error });
-  };
+    if (!validateForm()) return;
 
-  const submit = async () => {
-    if (!form.name || !form.email || !form.password || !form.confirm) {
-      setErr('Please fill in all fields.');
-      return;
-    }
-
-    const emailErr = validateEmail(form.email);
-    const passwordErr = validatePassword(form.password);
-    const confirmErr = validateConfirm(form.password, form.confirm);
-
-    setFieldErrors({ email: emailErr, password: passwordErr, confirm: confirmErr });
-
-    if (emailErr || passwordErr || confirmErr) {
-      setErr('');
-      return;
-    }
-
-    setErr('');
+    setError('');
     setLoading(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, email: form.email, password: form.password }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Registration failed. Please try again.');
 
-      const user = data.user || data;
-      onLogin({
-        id: user.id,
-        email: user.email || form.email,
-        name: user.name || form.name,
-        role: user.role || 'user',
+    try {
+      const data = await api('/api/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          password: form.password,
+        }),
       });
-    } catch (error) {
-      setErr(error.message || 'Registration failed. Please try again.');
+
+      onLogin(data.user);
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to create your account.');
     } finally {
       setLoading(false);
     }
   };
 
-  const eyeButtonStyle = {
-    position: 'absolute',
-    right: '12px',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    fontSize: '1.2rem',
-    display: 'flex',
-    alignItems: 'center',
-    padding: '0',
-    color: '#666',
-    zIndex: 2
-  };
-
   return (
     <div className="auth-page page-full">
-      <div className="auth-hdr">
-        <div className="auth-hdr-blob" />
-        <button className="back-btn" onClick={() => onNavigate('startup')}>
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M12 4L6 10L12 16" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-        <h2>Create account</h2>
-        <p>Join CleanTrack today</p>
-      </div>
-      <div className="auth-body">
-        <div className="auth-card">
-          <div className="fg">
-            <label>Full Name</label>
-            <input
-              type="text"
-              placeholder="Juan Dela Cruz"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-          </div>
-          
-          <div className="fg">
-            <label>Email</label>
-            <input
-              type="email"
-              placeholder="you@example.com"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              onBlur={handleEmailBlur}
-            />
-            {fieldErrors.email && <p style={{ fontSize: '0.8rem', color: 'var(--danger)', marginTop: '4px' }}>{fieldErrors.email}</p>}
-          </div>
-
-          {/* Password Field with Eye */}
-          <div className="fg">
-            <label>Password</label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type={showPass ? "text" : "password"}
-                placeholder="••••••••"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                onBlur={handlePasswordBlur}
-                style={{ paddingRight: '45px' }} // prevent text from going under the icon
-              />
-              <button type="button" onClick={() => setShowPass(!showPass)} style={eyeButtonStyle}>
-                {showPass ? '👁️' : '🙈'}
-              </button>
-            </div>
-            {fieldErrors.password && <p style={{ fontSize: '0.8rem', color: 'var(--danger)', marginTop: '4px' }}>{fieldErrors.password}</p>}
-          </div>
-
-          {/* Confirm Password Field with Eye */}
-          <div className="fg">
-            <label>Confirm Password</label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type={showPass ? "text" : "password"}
-                placeholder="••••••••"
-                value={form.confirm}
-                onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-                onBlur={handleConfirmBlur}
-                style={{ paddingRight: '45px' }}
-              />
-              <button type="button" onClick={() => setShowPass(!showPass)} style={eyeButtonStyle}>
-                {showPass ? '👁️' : '🙈'}
-              </button>
-            </div>
-            {fieldErrors.confirm && <p style={{ fontSize: '0.8rem', color: 'var(--danger)', marginTop: '4px' }}>{fieldErrors.confirm}</p>}
-          </div>
-
-          {err && <p className="form-err">{err}</p>}
-          <button className="btn-green" onClick={submit} disabled={loading}>
-            {loading ? 'Creating Account...' : 'Create Account'}
+      <div className="auth-hero">
+        <div className="auth-hero-inner">
+          <button className="round-button light auth-back" onClick={() => onNavigate('login')} aria-label="Back">
+            <Icon name="chevronLeft" size={19} />
           </button>
-          <p className="auth-switch">
-            Already have an account? <span onClick={() => onNavigate('login')}>Sign in</span>
-          </p>
+
+          <div className="brand-lockup">
+            <BrandMark size={48} />
+            <div className="brand-lockup-text" style={{ color: 'white' }}>
+              <strong>{BANK.shortName}</strong>
+              <span style={{ color: 'rgba(255,255,255,.48)' }}>{BANK.location}</span>
+            </div>
+          </div>
+
+          <div className="auth-hero-copy">
+            <span className="eyebrow">Open an account</span>
+            <h1>Join the bank.</h1>
+            <p>Create your online banking profile and a free checking account in minutes.</p>
+          </div>
         </div>
+      </div>
+
+      <div className="auth-body">
+        <form className="auth-card" onSubmit={submit}>
+          <div className="auth-title">
+            <h2>Create your profile</h2>
+            <p>All fields are required.</p>
+          </div>
+
+          <div className="field">
+            <label htmlFor="register-name">Full name</label>
+            <div className="input-shell with-icon">
+              <Icon name="user" size={17} className="input-icon" />
+              <input
+                id="register-name"
+                type="text"
+                autoComplete="name"
+                placeholder="Juan Dela Cruz"
+                value={form.name}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+              />
+            </div>
+            {fieldErrors.name && <span className="field-error">{fieldErrors.name}</span>}
+          </div>
+
+          <div className="field">
+            <label htmlFor="register-email">Email address</label>
+            <div className="input-shell with-icon">
+              <Icon name="mail" size={17} className="input-icon" />
+              <input
+                id="register-email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                value={form.email}
+                onChange={(event) => setForm({ ...form, email: event.target.value })}
+              />
+            </div>
+            {fieldErrors.email && <span className="field-error">{fieldErrors.email}</span>}
+          </div>
+
+          <div className="field">
+            <label htmlFor="register-password">Password</label>
+            <div className="input-shell with-icon with-action">
+              <Icon name="lock" size={17} className="input-icon" />
+              <input
+                id="register-password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                placeholder="At least 8 characters"
+                value={form.password}
+                onChange={(event) => setForm({ ...form, password: event.target.value })}
+              />
+              <button
+                type="button"
+                className="eye-button"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                <Icon name={showPassword ? 'eyeOff' : 'eye'} size={18} />
+              </button>
+            </div>
+            <span className="field-hint">Include one uppercase letter and one number.</span>
+            {fieldErrors.password && <span className="field-error">{fieldErrors.password}</span>}
+          </div>
+
+          <div className="field">
+            <label htmlFor="register-confirm">Confirm password</label>
+            <div className="input-shell with-icon">
+              <Icon name="lock" size={17} className="input-icon" />
+              <input
+                id="register-confirm"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                placeholder="Repeat your password"
+                value={form.confirm}
+                onChange={(event) => setForm({ ...form, confirm: event.target.value })}
+              />
+            </div>
+            {fieldErrors.confirm && <span className="field-error">{fieldErrors.confirm}</span>}
+          </div>
+
+          {error && <div className="form-error">{error}</div>}
+
+          <button className="btn btn-primary btn-block" type="submit" disabled={loading}>
+            {loading ? 'Creating account…' : 'Create account'}
+            {!loading && <Icon name="chevronRight" size={17} />}
+          </button>
+
+          <p className="auth-switch">
+            Already registered?{' '}
+            <button type="button" onClick={() => onNavigate('login')}>Sign in</button>
+          </p>
+        </form>
+
+        <div className="secure-note" style={{ marginTop: 14 }}>
+          <Icon name="shield" size={15} style={{ flex: 'none', marginTop: 1 }} />
+          <span>New accounts are demo-only and start with a zero-balance checking account.</span>
+        </div>
+      </div>
+
+      <div className="auth-footer">
+        {BANK.name} · Simulation environment
       </div>
     </div>
   );
 }
-
-export default RegisterPage;

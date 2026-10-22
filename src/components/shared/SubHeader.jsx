@@ -1,22 +1,19 @@
 import React from 'react';
+import Icon from '../Icons';
 
-function SubHeader({ title, onBack }) {
+export default function SubHeader({ title, subtitle, onBack, action }) {
   return (
-    <div className="sub-hdr">
-      <button className="sub-back" onClick={onBack}>
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <path
-            d="M12 4L6 10L12 16"
-            stroke="white"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-      <h1>{title}</h1>
-    </div>
+    <header className="sub-header">
+      <div className="sub-header-row">
+        <button className="round-button light" onClick={onBack} aria-label="Go back">
+          <Icon name="chevronLeft" size={20} />
+        </button>
+        <div className="sub-header-text">
+          <h1>{title}</h1>
+          {subtitle && <p>{subtitle}</p>}
+        </div>
+        {action || <span className="sub-header-spacer" />}
+      </div>
+    </header>
   );
 }
-
-export default SubHeader;

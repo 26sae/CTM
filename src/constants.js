@@ -1,116 +1,118 @@
-// Trucks data for live tracking
+const configuredApiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
-export const API_URL = API_BASE_URL;
+export const API_BASE_URL = (
+  /^https?:\/\//i.test(configuredApiBase) ? configuredApiBase : `https://${configuredApiBase}`
+).replace(/\/+$/, '');
 
-export const TRUCKS = [
-  { id: 1, label: 'Truck A', x: 30, y: 35, status: 'En route', eta: '~8 min' },
-  { id: 2, label: 'Truck B', x: 65, y: 55, status: 'Collecting', eta: 'Nearby' },
-  { id: 3, label: 'Truck C', x: 50, y: 75, status: 'En route', eta: '~22 min' },
-];
+export const BANK = {
+  name: 'Binangonan Banking Corporation',
+  shortName: 'Binangonan Bank',
+  tagline: 'Banking built around you.',
+  location: 'Binangonan, Rizal',
+  currency: 'PHP',
+  version: '1.0.0',
+};
 
-// Report types available in the app
-export const REPORT_TYPES = [
-  { id: 'illegal', label: 'Illegal Dumping', icon: '🚯', desc: 'Unauthorized waste disposal in public areas' },
-  { id: 'bin', label: 'Bin Damage', icon: '🗑️', desc: 'Broken, missing, or vandalized waste bins' },
-  { id: 'missed', label: 'Missed Collection', icon: '📭', desc: 'Scheduled pickup was not completed' },
-];
-
-// Mock activities data
-export const ACTIVITIES = [
-  { id: 1, type: 'Illegal Dumping', icon: '🚯', loc: '14 Rizal Ave', status: 'resolved', time: '2h ago', reporter: 'Juan D.' },
-  { id: 2, type: 'Missed Collection', icon: '📭', loc: '8 Mabini St', status: 'in-progress', time: '3h ago', reporter: 'Maria S.' },
-  { id: 3, type: 'Bin Damage', icon: '🗑️', loc: 'Brgy Hall, Block 4', status: 'pending', time: '5h ago', reporter: 'Pedro R.' },
-  { id: 4, type: 'Illegal Dumping', icon: '🚯', loc: 'Corner Luna & Mabini', status: 'resolved', time: 'Yesterday', reporter: 'Ana L.' },
-  { id: 5, type: 'Missed Collection', icon: '📭', loc: '22 Del Pilar St', status: 'resolved', time: 'Yesterday', reporter: 'Carlo M.' },
-  { id: 6, type: 'Bin Damage', icon: '🗑️', loc: 'Purok 3 Playground', status: 'pending', time: '2 days ago', reporter: 'Rosa T.' },
-];
-
-// Onboarding slides
 export const SLIDES = [
   {
-    title: 'Track Garbage Trucks Live',
-    desc: 'See exactly where garbage trucks are in your neighborhood in real time so you never miss a pickup.',
-    icon: '🚛',
+    eyebrow: 'Welcome to Binangonan Bank',
+    title: 'Banking that feels personal.',
+    desc: 'A secure, straightforward home for your everyday finances — built for the people of Binangonan.',
+    icon: 'shield',
   },
   {
-    title: 'Report Issues Instantly',
-    desc: 'Spot illegal dumping, a damaged bin, or a missed collection? Report it in seconds with location and details.',
-    icon: '🚨',
+    eyebrow: 'Everything in one place',
+    title: 'Your accounts, clearly.',
+    desc: 'View balances, review recent activity, and search your transaction history without the clutter.',
+    icon: 'wallet',
   },
   {
-    title: 'Stay in the Loop',
-    desc: 'Track community reports, see what\'s been resolved, and stay updated on waste management activity near you.',
-    icon: '📋',
+    eyebrow: 'Always within reach',
+    title: 'Know where your money goes.',
+    desc: 'Deposits, withdrawals, transfers and payments are organized in one clean statement view.',
+    icon: 'activity',
   },
 ];
 
-// Waste segregation guide
-export const WASTE_TYPES = [
-  {
-    category: 'Biodegradable',
-    icon: '🌿',
-    items: ['Food scraps', 'Leaves & grass', 'Paper & cardboard', 'Plant materials'],
-    color: '#4CAF50',
-    bgColor: '#E8F5E9',
-  },
-  {
-    category: 'Recyclable',
-    icon: '♻️',
-    items: ['Plastic bottles & containers', 'Glass bottles & jars', 'Metal cans & foil', 'Newspapers & magazines'],
-    color: '#2196F3',
-    bgColor: '#E3F2FD',
-  },
-  {
-    category: 'Non-Biodegradable',
-    icon: '⚫',
-    items: ['Plastic bags', 'Styrofoam', 'Treated wood', 'Rubber products'],
-    color: '#FF9800',
-    bgColor: '#FFF3E0',
-  },
-  {
-    category: 'Special Waste',
-    icon: '⚠️',
-    items: ['Electronics', 'Batteries', 'Chemicals', 'Medical waste'],
-    color: '#F44336',
-    bgColor: '#FFEBEE',
-  },
+export const NAV_ITEMS = [
+  { id: 'dashboard', label: 'Home', icon: 'dashboard' },
+  { id: 'accounts', label: 'Accounts', icon: 'wallet' },
+  { id: 'activity', label: 'Activity', icon: 'activity' },
+  { id: 'profile', label: 'Profile', icon: 'user' },
 ];
 
-// FAQ items
-export const FAQS = [
-  { q: 'How do I report an issue?', a: 'Tap the Report tab on the bottom nav, choose your issue type, fill in the location and details, then submit.' },
-  { q: 'How accurate is the truck tracker?', a: 'The tracker shows approximate truck positions updated every few minutes based on the truck\'s last known location.' },
-  { q: 'How long does it take to resolve a report?', a: 'Most reports are reviewed within 24–48 hours. You\'ll get a notification when the status changes.' },
-  { q: 'Can I cancel or edit a report?', a: 'Currently you cannot edit a submitted report. Contact support if you need to make a correction.' },
-  { q: 'What is the segregation guide for?', a: 'It helps you sort your waste correctly — biodegradable, recyclable, non-biodegradable, and special waste — before pickup.' },
-];
-
-// Profile menu items
 export const PROFILE_MENU = [
-  { icon: '👤', bg: '#e8f5ee', label: 'Edit Profile', sub: 'Update your name and info', to: 'edit-profile' },
-  { icon: '🔔', bg: '#fff8ec', label: 'Notifications', sub: 'Manage alert preferences', to: 'notifications' },
-  { icon: '📍', bg: '#e8f0ff', label: 'My Address', sub: 'Set your pickup location', to: 'my-address' },
-  { icon: '📋', bg: '#edfaf3', label: 'My Reports', sub: 'View reports you submitted', to: 'my-reports' },
-  { icon: '❓', bg: '#fdecea', label: 'Help & Support', sub: 'FAQs and contact us', to: 'help' },
-  { icon: 'ℹ️', bg: '#f4f6f4', label: 'About CleanTrack', sub: 'Version 1.0.0', to: 'about' },
+  { icon: 'edit', tint: 'blue', label: 'Edit Profile', sub: 'Update your personal details', to: 'edit-profile' },
+  { icon: 'lock', tint: 'gold', label: 'Change Password', sub: 'Keep your account secure', to: 'change-password' },
+  { icon: 'bell', tint: 'green', label: 'Notifications', sub: 'Manage alert preferences', to: 'notifications' },
+  { icon: 'help', tint: 'violet', label: 'Help & Support', sub: 'FAQs and contact details', to: 'help' },
+  { icon: 'info', tint: 'slate', label: 'About Binangonan Bank', sub: 'Version 1.0.0', to: 'about' },
 ];
 
-// Street lines for map visualization
-export const MAP_STREETS = [
-  [0, 30, 100, 30],
-  [0, 55, 100, 55],
-  [0, 78, 100, 78],
-  [25, 0, 25, 100],
-  [55, 0, 55, 100],
-  [80, 0, 80, 100],
+export const FAQS = [
+  {
+    q: 'How do I view my account balance?',
+    a: 'Sign in and open the Accounts tab. Your available balances and account numbers are listed there.',
+  },
+  {
+    q: 'How do I review an old transaction?',
+    a: 'Open the Activity tab to see your full statement history, or use the search box on the dashboard to look up a reference number, description, or category.',
+  },
+  {
+    q: 'What should I do if I see an unfamiliar transaction?',
+    a: 'Contact Binangonan Bank support immediately at support@binangonanbank.test or call 1-800-BBCARE.',
+  },
+  {
+    q: 'Can I change my password?',
+    a: 'Yes. Go to Profile, choose Change Password, and confirm your current password before setting a new one.',
+  },
+  {
+    q: 'Is this a real bank?',
+    a: 'No. This is a fictional banking application built for a cybersecurity attack simulation. Do not enter real personal or financial information.',
+  },
 ];
 
-// Notification rows
 export const NOTIFICATION_ROWS = [
-  { key: 'pickup', label: 'Pickup Reminders', desc: 'Get notified before your scheduled pickup' },
-  { key: 'reports', label: 'Report Updates', desc: 'Status changes on your submitted reports' },
-  { key: 'resolved', label: 'Issue Resolved', desc: 'When a community report is resolved' },
-  { key: 'nearby', label: 'Nearby Truck Alerts', desc: 'When a truck is near your location' },
-  { key: 'weekly', label: 'Weekly Summary', desc: 'Weekly digest of neighborhood activity' },
+  { key: 'deposits', label: 'Deposit Alerts', desc: 'Get notified when money arrives' },
+  { key: 'withdrawals', label: 'Withdrawal Alerts', desc: 'Alerts for ATM and over-the-counter withdrawals' },
+  { key: 'security', label: 'Security Alerts', desc: 'New sign-ins and password changes' },
+  { key: 'statements', label: 'Monthly Statements', desc: 'Your statement is ready to view' },
+  { key: 'promotions', label: 'Bank Updates', desc: 'Product news from Binangonan Bank' },
 ];
+
+export const TRANSACTION_META = {
+  deposit: { label: 'Deposit', icon: 'arrowDown', sign: '+', tone: 'positive' },
+  withdrawal: { label: 'Withdrawal', icon: 'arrowUp', sign: '-', tone: 'negative' },
+  transfer: { label: 'Transfer', icon: 'transfer', sign: '-', tone: 'neutral' },
+  payment: { label: 'Payment', icon: 'card', sign: '-', tone: 'warning' },
+};
+
+export const ACCOUNT_META = {
+  Checking: { icon: 'wallet', tone: 'blue', desc: 'Everyday account' },
+  Savings: { icon: 'shield', tone: 'green', desc: 'Savings account' },
+  Credit: { icon: 'card', tone: 'gold', desc: 'Credit account' },
+};
+
+export const ADMIN_EVENT_META = {
+  login_success: { label: 'Login success', tone: 'success', icon: 'check' },
+  login_failed: { label: 'Login failed', tone: 'danger', icon: 'alert' },
+  sqli_attempt: { label: 'SQLi attempt', tone: 'danger', icon: 'shield' },
+  admin_action: { label: 'Admin action', tone: 'info', icon: 'users' },
+  register_success: { label: 'Registration', tone: 'success', icon: 'user' },
+  password_changed: { label: 'Password change', tone: 'warning', icon: 'lock' },
+};
+
+export const LOG_EVENT_OPTIONS = [
+  { value: 'all', label: 'All events' },
+  { value: 'login_failed', label: 'Login failed' },
+  { value: 'login_success', label: 'Login success' },
+  { value: 'sqli_attempt', label: 'SQLi attempt' },
+  { value: 'admin_action', label: 'Admin action' },
+  { value: 'register_success', label: 'Registration' },
+  { value: 'password_changed', label: 'Password change' },
+];
+
+export const ACCOUNT_TYPES = ['Checking', 'Savings', 'Credit'];
+export const ACCOUNT_STATUSES = ['active', 'frozen', 'closed'];
+export const USER_STATUSES = ['active', 'locked', 'closed'];
+export const USER_ROLES = ['customer', 'admin'];

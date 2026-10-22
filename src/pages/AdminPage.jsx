@@ -1,866 +1,962 @@
-import React, { useState, useEffect } from 'react';
-import { API_BASE_URL } from '../constants';
+import React, { useEffect, useRef, useState } from 'react';
+import BrandMark from '../components/shared/BrandMark';
+import Icon from '../components/Icons';
+import Modal from '../components/Modal';
+import {
+  api,
+  formatDateTime,
+  formatMoney,
+  initials,
+  statusTone,
+} from '../api';
+import {
+  ACCOUNT_STATUSES,
+  ACCOUNT_TYPES,
+  ADMIN_EVENT_META,
+  BANK,
+  LOG_EVENT_OPTIONS,
+  USER_ROLES,
+  USER_STATUSES,
+} from '../constants';
 
-function AdminPage({ user, onNavigate, onLogout }) {
-  const [reports, setReports] = useState([]);
-  const [form, setForm] = useState({ title: '', description: '', status: 'Pending' });
-  const [editingId, setEditingId] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('All');
-  const [sortBy, setSortBy] = useState('date');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(5);
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [bulkStatus, setBulkStatus] = useState('Pending');
-  const [toast, setToast] = useState({ message: '', type: '', show: false });
-  const [activityLog, setActivityLog] = useState([]);
+const TABS = [
+  { id: 'accounts', label: 'Accounts', icon: 'wallet' },
+  { id: 'customers', label: 'Customers', icon: 'users' },
+  { id: 'logs', label: 'Security logs', icon: 'document' },
+];
 
-  const fetchReports = async () => {
+const LOG_PAGE_SIZE = 20;
+
+function emptyAccountForm(customers) {
+  return {
+    userId: customers[0]?.id || '',
+    accountType: 'Checking',
+    balance: '0',
+    status: 'active',
+  };
+}
+
+function emptyCustomerForm() {
+  return {
+    name: '',
+    email: '',
+    password: 'Welcome123',
+    phone: '',
+    address: '',
+    role: 'customer',
+    status: 'active',
+    createAccount: true,
+    accountType: 'Checking',
+    initialBalance: '0',
+  };
+}
+
+export default function AdminPage({ user, onNavigate, onLogout }) {
+  const [tab, setTab] = useState('accounts');
+  const [stats, setStats] = useState(null);
+  const [accounts, setAccounts] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [logTotal, setLogTotal] = useState(0);
+  const [logPage, setLogPage] = useState(0);
+  const [logEvent, setLogEvent] = useState('all');
+  const [logEmail, setLogEmail] = useState('');
+  const [appliedLogEvent, setAppliedLogEvent] = useState('all');
+  const [appliedLogEmail, setAppliedLogEmail] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [accountSearch, setAccountSearch] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [editor, setEditor] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+
+  const showToast = (message, tone = 'success') => {
+    setToast({ message, tone });
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 3200);
+  };
+
+  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+
+  async function loadStats() {
     try {
-      const response = await fetch(`${API_BASE_URL}/`);
-      const data = await response.json();
-      setReports(data.map(d => ({
-        ...d,
-        id: d.Document_ID || d.id,
-        title: d.title || d.type || '',
-        description: d.description || d.address || '',
-        status: d.status || 'Pending',
-        createdAt: d.createdAt || d.created_at || new Date().toISOString()
-      })));
-    } catch (error) {
-      console.error('Error fetching reports:', error);
-      showToast('Error fetching reports from server', 'error');
+      setStats(await api('/api/admin/stats'));
+    } catch (requestError) {
+      setError(requestError.message);
     }
-  };
+  }
 
-  useEffect(() => { fetchReports(); }, []);
+  async function loadAccounts() {
+    try {
+      setAccounts(await api('/api/admin/accounts'));
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
 
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type, show: true });
-    setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
-  };
+  async function loadCustomers() {
+    try {
+      setCustomers(await api('/api/admin/users'));
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
 
-  const addActivity = (action, details) => {
-    setActivityLog(prev => [{
-      timestamp: new Date().toLocaleTimeString(),
-      action,
-      details,
-    }, ...prev.slice(0, 19)]);
-  };
+  async function loadLogs() {
+    try {
+      const query = new URLSearchParams({
+        event: appliedLogEvent,
+        email: appliedLogEmail,
+        limit: String(LOG_PAGE_SIZE),
+        offset: String(logPage * LOG_PAGE_SIZE),
+      });
+      const data = await api(`/api/admin/logs?${query.toString()}`);
+      setLogs(data.logs || []);
+      setLogTotal(data.total || 0);
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
 
-  const handleAdd = async () => {
-    if (!form.title || !form.description) {
-      showToast('Please fill in all fields', 'error');
+  async function refreshAll() {
+    await Promise.all([loadStats(), loadAccounts(), loadCustomers()]);
+  }
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    Promise.all([loadStats(), loadCustomers()]).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
+
+  // These loaders intentionally read the current tab and applied log filters.
+  useEffect(() => {
+    if (tab === 'accounts') loadAccounts();
+    if (tab === 'customers') loadCustomers();
+    if (tab === 'logs') loadLogs();
+  }, [tab, appliedLogEvent, appliedLogEmail, logPage]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filteredAccounts = accounts.filter((account) => {
+    const term = accountSearch.trim().toLowerCase();
+    if (!term) return true;
+    return (
+      String(account.customer_name || '').toLowerCase().includes(term) ||
+      String(account.customer_email || '').toLowerCase().includes(term) ||
+      String(account.account_number || '').toLowerCase().includes(term)
+    );
+  });
+
+  const filteredCustomers = customers.filter((customer) => {
+    const term = customerSearch.trim().toLowerCase();
+    if (!term) return true;
+    return (
+      String(customer.name || '').toLowerCase().includes(term) ||
+      String(customer.email || '').toLowerCase().includes(term)
+    );
+  });
+
+  const openCreateAccount = () => {
+    if (customers.length === 0) {
+      showToast('Create a customer profile first.', 'error');
       return;
     }
-    try {
-      const res = await fetch(`${API_BASE_URL}/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, createdAt: new Date().toISOString() })
-      });
-      if (!res.ok) throw new Error('Failed to create report');
-      setForm({ title: '', description: '', status: 'Pending' });
-      setShowForm(false);
-      fetchReports();
-      showToast('Report added successfully');
-      addActivity('Created', form.title);
-    } catch (error) {
-      showToast('Error adding report', 'error');
-    }
+
+    setEditor({
+      kind: 'account',
+      mode: 'create',
+      form: emptyAccountForm(customers),
+      error: '',
+    });
   };
 
-  const handleUpdate = async () => {
-    if (!editingId) return;
-    try {
-      const res = await fetch(`${API_BASE_URL}/${editingId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
-      });
-      if (!res.ok) throw new Error('Failed to update report');
-      setEditingId(null);
-      setForm({ title: '', description: '', status: 'Pending' });
-      setShowForm(false);
-      fetchReports();
-      showToast('Report updated successfully');
-      addActivity('Updated', form.title);
-    } catch (error) {
-      showToast('Error updating report', 'error');
-    }
+  const openEditAccount = (account) => {
+    setEditor({
+      kind: 'account',
+      mode: 'edit',
+      record: account,
+      form: {
+        userId: account.user_id,
+        accountType: account.account_type,
+        balance: String(account.balance),
+        status: account.status,
+      },
+      error: '',
+    });
   };
 
-  const handleDelete = async (id) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/${id}`, {
-        method: 'DELETE'
-      });
-      if (!res.ok) throw new Error('Failed to delete report');
-      fetchReports();
-      showToast('Report deleted');
-      addActivity('Deleted', 'Report ID: ' + id);
-    } catch (error) {
-      showToast('Error deleting report', 'error');
-    }
+  const openCreateCustomer = () => {
+    setEditor({
+      kind: 'customer',
+      mode: 'create',
+      form: emptyCustomerForm(),
+      error: '',
+    });
   };
 
-  const handleBulkStatusUpdate = async () => {
-    if (selectedIds.size === 0) {
-      showToast('Please select reports', 'error');
+  const openEditCustomer = (customer) => {
+    setEditor({
+      kind: 'customer',
+      mode: 'edit',
+      record: customer,
+      form: {
+        name: customer.name || '',
+        email: customer.email || '',
+        password: '',
+        phone: customer.phone || '',
+        address: customer.address || '',
+        role: customer.role || 'customer',
+        status: customer.status || 'active',
+        createAccount: false,
+        accountType: 'Checking',
+        initialBalance: '0',
+      },
+      error: '',
+    });
+  };
+
+  const updateField = (key, value) => {
+    setEditor((current) => ({
+      ...current,
+      error: '',
+      form: { ...current.form, [key]: value },
+    }));
+  };
+
+  const saveEditor = async () => {
+    if (!editor) return;
+
+    const { kind, mode, form, record } = editor;
+
+    if (kind === 'account') {
+      if (!form.userId) {
+        setEditor((current) => ({ ...current, error: 'Select a customer for this account.' }));
+        return;
+      }
+    }
+
+    if (kind === 'customer' && (!form.name.trim() || !form.email.trim())) {
+      setEditor((current) => ({ ...current, error: 'Name and email are required.' }));
       return;
     }
+
+    if (kind === 'customer' && mode === 'create' && !form.password.trim()) {
+      setEditor((current) => ({ ...current, error: 'Set an initial password for the customer.' }));
+      return;
+    }
+
+    setSaving(true);
+
     try {
-      for (let id of selectedIds) {
-        await fetch(`${API_BASE_URL}/${id}`, {
+      if (kind === 'account' && mode === 'create') {
+        await api('/api/admin/accounts', {
+          method: 'POST',
+          body: JSON.stringify({
+            userId: Number(form.userId),
+            accountType: form.accountType,
+            balance: Number(form.balance) || 0,
+            status: form.status,
+          }),
+        });
+        showToast('Account created successfully.');
+      } else if (kind === 'account') {
+        await api(`/api/admin/accounts/${record.id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: bulkStatus })
+          body: JSON.stringify({
+            account_type: form.accountType,
+            balance: Number(form.balance) || 0,
+            status: form.status,
+          }),
         });
+        showToast('Account updated.');
+      } else if (kind === 'customer' && mode === 'create') {
+        await api('/api/admin/users', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: form.name,
+            email: form.email,
+            password: form.password,
+            phone: form.phone,
+            address: form.address,
+            role: form.role,
+            status: form.status,
+            createAccount: form.createAccount,
+            accountType: form.accountType,
+            initialBalance: Number(form.initialBalance) || 0,
+          }),
+        });
+        showToast('Customer created.');
+      } else if (kind === 'customer') {
+        const payload = {
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          address: form.address,
+          role: form.role,
+          status: form.status,
+        };
+        if (form.password.trim()) payload.password = form.password;
+        await api(`/api/admin/users/${record.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+        showToast('Customer updated.');
       }
-      setSelectedIds(new Set());
-      fetchReports();
-      showToast(`Updated ${selectedIds.size} reports to ${bulkStatus}`);
-      addActivity('Bulk Update', `Changed ${selectedIds.size} reports to ${bulkStatus}`);
-    } catch (error) {
-      showToast('Error updating reports', 'error');
+
+      setEditor(null);
+      await refreshAll();
+      if (tab === 'logs') await loadLogs();
+    } catch (requestError) {
+      setEditor((current) => ({ ...current, error: requestError.message }));
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) {
-      showToast('Please select reports', 'error');
+  const removeRecord = async () => {
+    if (!confirmDelete) return;
+
+    const { kind, record } = confirmDelete;
+
+    if (kind === 'customer' && record.id === user.id) {
+      showToast('You cannot delete the account you are signed in with.', 'error');
+      setConfirmDelete(null);
       return;
     }
-    if (!window.confirm(`Delete ${selectedIds.size} reports?`)) return;
+
     try {
-      for (let id of selectedIds) {
-        await fetch(`${API_BASE_URL}/${id}`, {
-          method: 'DELETE'
-        });
+      if (kind === 'account') {
+        await api(`/api/admin/accounts/${record.id}`, { method: 'DELETE' });
+        showToast('Account deleted.');
+      } else {
+        await api(`/api/admin/users/${record.id}`, { method: 'DELETE' });
+        showToast('Customer deleted.');
       }
-      setSelectedIds(new Set());
-      fetchReports();
-      showToast(`Deleted ${selectedIds.size} reports`);
-      addActivity('Bulk Delete', `Deleted ${selectedIds.size} reports`);
-    } catch (error) {
-      showToast('Error deleting reports', 'error');
+
+      setConfirmDelete(null);
+      await refreshAll();
+    } catch (requestError) {
+      showToast(requestError.message, 'error');
     }
   };
 
-  const startEdit = (item) => {
-    setEditingId(item.id);
-    setForm({ title: item.title, description: item.description, status: item.status || 'Pending' });
-    setShowForm(true);
+  const applyLogFilters = (event) => {
+    event?.preventDefault();
+    setLogPage(0);
+    setAppliedLogEvent(logEvent);
+    setAppliedLogEmail(logEmail.trim());
   };
 
-  const cancelForm = () => {
-    setEditingId(null);
-    setForm({ title: '', description: '', status: 'Pending' });
-    setShowForm(false);
+  const changeLogEvent = (value) => {
+    setLogEvent(value);
+    setLogPage(0);
+    setAppliedLogEvent(value);
   };
 
-  const statusColor = (status) => {
-    if (status === 'Resolved') return 'var(--g600)';
-    if (status === 'In Progress') return '#f59e0b';
-    return '#ef4444';
-  };
-
-  const filteredReports = reports.filter(r => {
-    const matchesSearch = (r.title?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-                          (r.description?.toLowerCase() || '').includes(searchTerm.toLowerCase());
-    const matchesStatus = filterStatus === 'All' || r.status === filterStatus;
-    return matchesSearch && matchesStatus;
-  });
-
-  const sortedReports = [...filteredReports].sort((a, b) => {
-    if (sortBy === 'date') {
-      const aTime = new Date(a.createdAt || 0).getTime() || 0;
-      const bTime = new Date(b.createdAt || 0).getTime() || 0;
-      return bTime - aTime;
-    }
-    if (sortBy === 'title') return (a.title || '').localeCompare(b.title || '');
-    if (sortBy === 'status') return (a.status || 'Pending').localeCompare(b.status || 'Pending');
-    return 0;
-  });
-
-  const totalPages = Math.ceil(sortedReports.length / itemsPerPage);
-  const paginatedReports = sortedReports.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-
-  const toggleSelect = (id) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedIds(newSet);
-  };
-
-  const exportToCSV = () => {
-    const csv = [
-      ['Title', 'Description', 'Status', 'Created Date'],
-      ...filteredReports.map(r => [
-        r.title || 'N/A',
-        r.description || 'N/A',
-        r.status || 'Pending',
-        new Date(r.createdAt).toLocaleDateString()
-      ])
-    ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'reports.csv';
-    a.click();
-    window.URL.revokeObjectURL(url);
-    showToast('Reports exported as CSV');
-    addActivity('Export', `Exported ${filteredReports.length} reports to CSV`);
-  };
-
-  const stats = {
-    total: reports.length,
-    pending: reports.filter(r => r.status === 'Pending' || !r.status).length,
-    inProgress: reports.filter(r => r.status === 'In Progress').length,
-    resolved: reports.filter(r => r.status === 'Resolved').length,
-  };
+  const logPages = Math.max(Math.ceil(logTotal / LOG_PAGE_SIZE), 1);
 
   return (
-    <div style={{ background: 'var(--gray100)', minHeight: '100dvh' }}>
-      {/* TOAST NOTIFICATION */}
-      {toast.show && (
-        <div style={{
-          position: 'fixed',
-          top: '1rem',
-          right: '1rem',
-          zIndex: 1000,
-          background: toast.type === 'error' ? '#ef4444' : 'var(--g600)',
-          color: 'white',
-          padding: '0.75rem 1rem',
-          borderRadius: '8px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          animation: 'slideIn 0.3s ease-out',
-        }}>
-          {toast.message}
-        </div>
-      )}
+    <div className="admin-page page-full">
+      {toast && <div className={`toast ${toast.tone}`}>{toast.message}</div>}
 
-      {/* HEADER */}
-      <div className="auth-hdr" style={{ paddingBottom: '1.5rem', position: 'relative' }}>
-        <div className="auth-hdr-blob" style={{ pointerEvents: 'none' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 10 }}>
-          <div>
-            <h2 style={{ margin: 0 }}>Admin Panel</h2>
-            <p style={{ margin: 0, opacity: 0.85, fontSize: '0.85rem' }}>
-              Welcome, {user?.name || 'Admin'}
-            </p>
+      <header className="admin-header">
+        <div className="admin-header-top">
+          <div className="brand-lockup">
+            <BrandMark size={42} />
+            <div className="brand-lockup-text" style={{ color: 'white' }}>
+              <strong>{BANK.shortName}</strong>
+              <span style={{ color: 'rgba(255,255,255,.48)' }}>Admin back office</span>
+            </div>
           </div>
-          <button
-            onClick={() => onLogout()}
-            style={{
-              background: 'rgba(255,255,255,0.2)',
-              border: '1px solid rgba(255,255,255,0.4)',
-              borderRadius: '8px',
-              color: 'white',
-              padding: '0.4rem 0.9rem',
-              cursor: 'pointer',
-              fontSize: '0.85rem',
-              position: 'relative',
-              zIndex: 20,
-            }}
-          >
-            Logout
-          </button>
+
+          <div style={{ display: 'flex', gap: 7 }}>
+            <button
+              className="round-button light"
+              onClick={() => onNavigate('dashboard')}
+              aria-label="View customer app"
+            >
+              <Icon name="bank" size={18} />
+            </button>
+            <button className="round-button light" onClick={onLogout} aria-label="Sign out">
+              <Icon name="logout" size={18} />
+            </button>
+          </div>
+        </div>
+
+        <div className="admin-welcome">
+          <p>Operations console</p>
+          <h1>Good day, {user.name?.split(' ')[0] || 'Administrator'}.</h1>
+          <span>Manage customers, open accounts, and monitor security events.</span>
+        </div>
+      </header>
+
+      <div className="admin-stats">
+        <div className="stat-card">
+          <div className="stat-card-top">
+            <span className="stat-label">Customers</span>
+            <span className="stat-icon"><Icon name="users" size={15} /></span>
+          </div>
+          <span className="stat-value">{stats ? stats.customers : '—'}</span>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-top">
+            <span className="stat-label">Accounts</span>
+            <span className="stat-icon"><Icon name="wallet" size={15} /></span>
+          </div>
+          <span className="stat-value">{stats ? stats.accounts : '—'}</span>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-top">
+            <span className="stat-label">Bank balance</span>
+            <span className="stat-icon"><Icon name="bank" size={15} /></span>
+          </div>
+          <span className="stat-value" style={{ fontSize: '0.92rem' }}>
+            {stats ? formatMoney(stats.totalBalance) : '—'}
+          </span>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-top">
+            <span className="stat-label">Suspicious</span>
+            <span className="stat-icon"><Icon name="shield" size={15} /></span>
+          </div>
+          <span className="stat-value">{stats ? stats.suspiciousLogins : '—'}</span>
         </div>
       </div>
 
-      <div style={{ padding: '1rem', paddingBottom: '6rem' }}>
-        {/* STATS ROW */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
-          {[
-            { label: 'Total', count: stats.total },
-            { label: 'Pending', count: stats.pending },
-            { label: 'In Progress', count: stats.inProgress },
-            { label: 'Resolved', count: stats.resolved },
-          ].map(s => (
-            <div key={s.label} style={{
-              background: 'white',
-              borderRadius: '12px',
-              padding: '0.75rem',
-              textAlign: 'center',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-              transition: 'transform 0.2s, box-shadow 0.2s',
-              cursor: 'pointer',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.07)';
-            }}>
-              <div style={{ fontWeight: 700, fontSize: '1.3rem', color: 'var(--g800)' }}>{s.count}</div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--g500)' }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* SEARCH & FILTER */}
-        <div style={{
-          background: 'white',
-          borderRadius: '12px',
-          padding: '1rem',
-          marginBottom: '1rem',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-          width: '100%',
-          maxWidth: '520px',
-          margin: '0 auto',
-        }}>
-          <input
-            type="text"
-            placeholder="Search "
-            value={searchTerm}
-            onChange={e => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1);
-            }}
-            style={{
-              width: '100%',
-              height: '2rem',
-              padding: '0.6rem 0.75rem',
-              borderRadius: '8px',
-              border: '1.5px solid var(--gray300)',
-              fontSize: '0.84rem',
-              marginBottom: '0.5rem',
-            }}
-          />
-          <div style={{
-            height: '1px',
-            background: 'rgba(0, 0, 0, 0.08)',
-            margin: '0.4rem 0',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.06)'
-          }} />
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <select
-              value={filterStatus}
-              onChange={e => {
-                setFilterStatus(e.target.value);
-                setCurrentPage(1);
-              }}
-              style={{
-                flex: 1,
-                height: '2rem',
-                padding: '0.45rem 0.5rem',
-                borderRadius: '8px',
-                border: '1.5px solid var(--gray300)',
-                fontSize: '0.84rem',
-                background: 'white',
-              }}
-            >
-              <option>All</option>
-              <option>Pending</option>
-              <option>In Progress</option>
-              <option>Resolved</option>
-            </select>
-            <select
-              value={sortBy}
-              onChange={e => setSortBy(e.target.value)}
-              style={{
-                flex: 1,
-                height: '2rem',
-                padding: '0.45rem 0.5rem',
-                borderRadius: '8px',
-                border: '1.5px solid var(--gray300)',
-                fontSize: '0.84rem',
-                background: 'white',
-              }}
-            >
-              <option value="date">Sort: Date</option>
-              <option value="title">Sort: Title</option>
-              <option value="status">Sort: Status</option>
-            </select>
-            <button
-              onClick={exportToCSV}
-              style={{
-                height: '2rem',
-                padding: '0.45rem 0.75rem',
-                borderRadius: '8px',
-                border: 'none',
-                background: 'var(--g600)',
-                color: 'white',
-                cursor: 'pointer',
-                fontSize: '0.84rem',
-                fontWeight: 600,
-              }}
-            >
-              Export
-            </button>
-          </div>
-        </div>
-
-        {/* ADD BUTTON */}
-        {!showForm && (
+      <div className="admin-tabs">
+        {TABS.map((item) => (
           <button
-            onClick={() => setShowForm(true)}
-            className="btn-green"
-            style={{ width: '100%', marginBottom: '1rem' }}
+            key={item.id}
+            className={`admin-tab ${tab === item.id ? 'on' : ''}`}
+            onClick={() => setTab(item.id)}
           >
-            + Add New Report
-          </button>
-        )}
-
-        {/* FORM */}
-        {showForm && (
-          <div style={{
-            background: 'white',
-            borderRadius: '16px',
-            padding: '1rem',
-            marginBottom: '1rem',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-          }}>
-            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--g800)', fontSize: '1rem' }}>
-              {editingId ? '✏️ Edit Report' : '➕ New Report'}
-            </h3>
-            <div className="fg">
-              <label>Title</label>
-              <input
-                type="text"
-                placeholder="Report title"
-                value={form.title}
-                onChange={e => setForm({ ...form, title: e.target.value })}
-              />
-            </div>
-            <div className="fg">
-              <label>Description</label>
-              <input
-                type="text"
-                placeholder="Report description"
-                value={form.description}
-                onChange={e => setForm({ ...form, description: e.target.value })}
-              />
-            </div>
-            <div className="fg">
-              <label>Status</label>
-              <select
-                value={form.status}
-                onChange={e => setForm({ ...form, status: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '0.65rem 0.85rem',
-                  borderRadius: '10px',
-                  border: '1.5px solid var(--gray300)',
-                  fontSize: '0.95rem',
-                  background: 'white',
-                  color: 'var(--g800)',
-                }}
-              >
-                <option>Pending</option>
-                <option>In Progress</option>
-                <option>Resolved</option>
-              </select>
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-              <button
-                onClick={editingId ? handleUpdate : handleAdd}
-                className="btn-green"
-                style={{ flex: 1 }}
-              >
-                {editingId ? 'Update' : 'Add Report'}
-              </button>
-              <button
-                onClick={cancelForm}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem',
-                  borderRadius: '12px',
-                  border: '1.5px solid var(--gray300)',
-                  background: 'white',
-                  color: 'var(--g600)',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* BULK ACTIONS */}
-        {selectedIds.size > 0 && (
-          <div style={{
-            background: '#f0f9ff',
-            borderRadius: '12px',
-            padding: '1rem',
-            marginBottom: '1rem',
-            display: 'flex',
-            justify: 'space-between',
-            alignItems: 'center',
-            border: '2px solid #0ea5e9',
-          }}>
-            <span style={{ fontWeight: 600, color: 'var(--g800)' }}>
-              {selectedIds.size} report{selectedIds.size !== 1 ? 's' : ''} selected
-            </span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <select
-                value={bulkStatus}
-                onChange={e => setBulkStatus(e.target.value)}
-                style={{
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: '6px',
-                  border: '1px solid #0ea5e9',
-                  fontSize: '0.85rem',
-                  background: 'white',
-                }}
-              >
-                <option>Pending</option>
-                <option>In Progress</option>
-                <option>Resolved</option>
-              </select>
-              <button
-                onClick={handleBulkStatusUpdate}
-                style={{
-                  padding: '0.5rem 1rem',
-                  borderRadius: '6px',
-                  border: 'none',
-                  background: '#0ea5e9',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                }}
-              >
-                Update Status
-              </button>
-              <button
-                onClick={handleBulkDelete}
-                style={{
-                  padding: '0.5rem 1rem',
-                  borderRadius: '6px',
-                  border: 'none',
-                  background: '#ef4444',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* REPORTS LIST */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-          <h3 style={{ margin: 0, color: 'var(--g800)', fontSize: '1rem' }}>
-            All Reports ({filteredReports.length})
-          </h3>
-          {filteredReports.length > 0 && (
-            <select
-              value={itemsPerPage}
-              onChange={e => {
-                setItemsPerPage(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              style={{
-                padding: '0.4rem',
-                borderRadius: '6px',
-                border: '1px solid var(--gray300)',
-                fontSize: '0.8rem',
-                background: 'white',
-              }}
-            >
-              <option value="5">5 per page</option>
-              <option value="10">10 per page</option>
-              <option value="20">20 per page</option>
-            </select>
-          )}
-        </div>
-
-        {filteredReports.length === 0 && (
-          <div style={{
-            background: 'white',
-            borderRadius: '16px',
-            padding: '2rem',
-            textAlign: 'center',
-            color: 'var(--g500)',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-          }}>
-            <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📭</div>
-            <p style={{ margin: 0 }}>No reports found</p>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
-          {paginatedReports.map(item => (
-            <div key={item.id} style={{
-              background: 'white',
-              borderRadius: '16px',
-              padding: '1rem',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-              transition: 'all 0.2s',
-              cursor: 'pointer',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.07)';
-              e.currentTarget.style.transform = 'translateY(0)';
-            }}>
-              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-                <input
-                  type="checkbox"
-                  checked={selectedIds.has(item.id)}
-                  onChange={() => toggleSelect(item.id)}
-                  style={{ marginTop: '0.35rem', cursor: 'pointer' }}
-                />
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 0.25rem', fontWeight: 700, color: 'var(--g800)', fontSize: '0.95rem' }}>
-                    {item.title}
-                  </p>
-                  <p style={{ margin: '0 0 0.5rem', color: 'var(--g500)', fontSize: '0.82rem' }}>
-                    {item.description}
-                  </p>
-                  <div style={{ display: 'flex', gap: '1rem', fontSize: '0.75rem', color: 'var(--g500)' }}>
-                    <span>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'No date'}</span>
-                  </div>
-                  <span style={{
-                    fontSize: '0.72rem',
-                    fontWeight: 600,
-                    color: statusColor(item.status),
-                    background: `${statusColor(item.status)}18`,
-                    padding: '0.2rem 0.6rem',
-                    borderRadius: '999px',
-                    display: 'inline-block',
-                    marginTop: '0.5rem',
-                  }}>
-                    {item.status || 'Pending'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <button
-                    onClick={() => startEdit(item)}
-                    style={{
-                      background: 'var(--g100)',
-                      border: 'none',
-                      borderRadius: '8px',
-                      padding: '0.4rem 0.7rem',
-                      cursor: 'pointer',
-                      fontSize: '0.8rem',
-                      color: 'var(--g700)',
-                      fontWeight: 600,
-                      transition: 'all 0.2s',
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.background = 'var(--g200)';
-                      e.currentTarget.style.transform = 'scale(1.05)';
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.background = 'var(--g100)';
-                      e.currentTarget.style.transform = 'scale(1)';
-                    }}
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    onClick={() => handleDelete(item.id)}
-                    style={{
-                      background: '#fef2f2',
-                      border: 'none',
-                      borderRadius: '8px',
-                      padding: '0.4rem 0.7rem',
-                      cursor: 'pointer',
-                      fontSize: '0.8rem',
-                      color: '#ef4444',
-                      fontWeight: 600,
-                      transition: 'all 0.2s',
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.background = '#fee2e2';
-                      e.currentTarget.style.transform = 'scale(1.05)';
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.background = '#fef2f2';
-                      e.currentTarget.style.transform = 'scale(1)';
-                    }}
-                  >
-                    🗑️
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* PAGINATION */}
-        {totalPages > 1 && (
-          <div style={{
-            display: 'flex',
-            justify: 'center',
-            gap: '0.5rem',
-            marginBottom: '2rem',
-            flexWrap: 'wrap',
-          }}>
-            <button
-              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: '6px',
-                border: '1px solid var(--gray300)',
-                background: currentPage === 1 ? 'var(--gray100)' : 'white',
-                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-                fontSize: '0.85rem',
-              }}
-            >
-              ← Prev
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-              <button
-                key={page}
-                onClick={() => setCurrentPage(page)}
-                style={{
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: '6px',
-                  border: page === currentPage ? 'none' : '1px solid var(--gray300)',
-                  background: page === currentPage ? 'var(--g600)' : 'white',
-                  color: page === currentPage ? 'white' : 'var(--g800)',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: page === currentPage ? 600 : 400,
-                }}
-              >
-                {page}
-              </button>
-            ))}
-            <button
-              onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-              disabled={currentPage === totalPages}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: '6px',
-                border: '1px solid var(--gray300)',
-                background: currentPage === totalPages ? 'var(--gray100)' : 'white',
-                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
-                fontSize: '0.85rem',
-              }}
-            >
-              Next →
-            </button>
-          </div>
-        )}
-
-        {/* ACTIVITY LOG */}
-        {activityLog.length > 0 && (
-          <div style={{
-            background: 'white',
-            borderRadius: '12px',
-            padding: '1rem',
-            marginBottom: '2rem',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-          }}>
-            <h4 style={{ margin: '0 0 0.75rem', color: 'var(--g800)', fontSize: '0.9rem', fontWeight: 700 }}>
-              📋 Recent Activity
-            </h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {activityLog.slice(0, 10).map((log, idx) => (
-                <div key={idx} style={{
-                  display: 'flex',
-                  justify: 'space-between',
-                  padding: '0.5rem',
-                  borderRadius: '6px',
-                  background: 'var(--gray100)',
-                  fontSize: '0.8rem',
-                }}>
-                  <span style={{ color: 'var(--g800)', fontWeight: 500 }}>
-                    {log.action}: {log.details}
-                  </span>
-                  <span style={{ color: 'var(--g500)' }}>{log.timestamp}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* BOTTOM NAVIGATION - MODULE SWITCHER */}
-      <div style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        background: 'white',
-        borderTop: '1px solid var(--gray300)',
-        boxShadow: '0 -2px 8px rgba(0,0,0,0.08)',
-        display: 'flex',
-        justify: 'space-around',
-        alignItems: 'center',
-        padding: '0.5rem 0',
-        zIndex: 50,
-      }}>
-        {[
-          { id: 'reports', label: 'Reports', icon: '📊', enabled: true },
-          { id: 'users', label: 'Users', icon: '👥', enabled: false },
-          { id: 'analytics', label: 'Analytics', icon: '📈', enabled: false },
-          { id: 'settings', label: 'Settings', icon: '⚙️', enabled: false },
-        ].map(module => (
-          <button
-            key={module.id}
-            onClick={() => {
-              if (module.enabled && module.id !== 'reports') {
-                onNavigate(module.id);
-              }
-            }}
-            disabled={!module.enabled}
-            style={{
-              flex: 1,
-              padding: '0.75rem 0.5rem',
-              borderRadius: '0',
-              border: 'none',
-              background: module.id === 'reports' ? 'var(--g50)' : 'transparent',
-              color: module.id === 'reports' ? 'var(--g600)' : module.enabled ? 'var(--g600)' : 'var(--gray400)',
-              cursor: module.enabled ? 'pointer' : 'default',
-              fontSize: '0.75rem',
-              fontWeight: module.id === 'reports' ? 600 : 500,
-              textAlign: 'center',
-              opacity: module.enabled ? 1 : 0.5,
-              transition: 'all 0.2s',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-            }}
-            onMouseEnter={e => {
-              if (module.enabled) {
-                e.currentTarget.style.background = 'var(--g50)';
-              }
-            }}
-            onMouseLeave={e => {
-              if (module.id !== 'reports') {
-                e.currentTarget.style.background = 'transparent';
-              }
-            }}
-          >
-            <div>{module.label}</div>
+            <Icon name={item.icon} size={14} />
+            {item.label}
           </button>
         ))}
       </div>
 
-      <style>{`
-        @keyframes slideIn {
-          from {
-            transform: translateX(400px);
-            opacity: 0;
+      <div className="admin-body">
+        {loading && (tab === 'accounts' || tab === 'customers') && (
+          <div className="stack">
+            <div className="skeleton" style={{ height: 78 }} />
+            <div className="skeleton" style={{ height: 78 }} />
+            <div className="skeleton" style={{ height: 78 }} />
+          </div>
+        )}
+
+        {error && <div className="form-error">{error}</div>}
+
+        {tab === 'accounts' && (
+          <>
+            <div className="admin-toolbar">
+              <div className="input-shell with-icon">
+                <Icon name="search" size={16} className="input-icon" />
+                <input
+                  type="search"
+                  placeholder="Search customer or account"
+                  value={accountSearch}
+                  onChange={(event) => setAccountSearch(event.target.value)}
+                />
+              </div>
+              <button className="btn btn-primary btn-sm" onClick={openCreateAccount}>
+                <Icon name="plus" size={15} />
+                New
+              </button>
+            </div>
+
+            {!loading && filteredAccounts.length === 0 && (
+              <div className="empty-state">
+                <span className="empty-state-icon"><Icon name="wallet" size={21} /></span>
+                <strong>No accounts found</strong>
+                <p>Create an account for a customer to get started.</p>
+              </div>
+            )}
+
+            <div className="admin-list">
+              {filteredAccounts.map((account) => (
+                <article className="admin-card" key={account.id}>
+                  <div className="admin-card-icon">
+                    <Icon name={account.account_type === 'Savings' ? 'shield' : 'wallet'} size={18} />
+                  </div>
+                  <div className="admin-card-main">
+                    <span className="admin-card-title">{account.customer_name}</span>
+                    <span className="admin-card-sub">
+                      {account.customer_email}
+                      <br />
+                      {account.account_type} · {account.account_number}
+                    </span>
+                    <div className="admin-card-meta">
+                      <span className={`badge badge-${statusTone(account.status)}`}>{account.status}</span>
+                      <span className="badge badge-info">{account.account_type}</span>
+                    </div>
+                  </div>
+                  <div className="admin-card-side">
+                    <span className="admin-card-balance">{formatMoney(account.balance)}</span>
+                    <div className="admin-actions">
+                      <button
+                        className="mini-button"
+                        onClick={() => openEditAccount(account)}
+                        aria-label="Edit account"
+                      >
+                        <Icon name="edit" size={14} />
+                      </button>
+                      <button
+                        className="mini-button danger"
+                        onClick={() => setConfirmDelete({ kind: 'account', record: account })}
+                        aria-label="Delete account"
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+
+        {tab === 'customers' && (
+          <>
+            <div className="admin-toolbar">
+              <div className="input-shell with-icon">
+                <Icon name="search" size={16} className="input-icon" />
+                <input
+                  type="search"
+                  placeholder="Search name or email"
+                  value={customerSearch}
+                  onChange={(event) => setCustomerSearch(event.target.value)}
+                />
+              </div>
+              <button className="btn btn-primary btn-sm" onClick={openCreateCustomer}>
+                <Icon name="plus" size={15} />
+                New
+              </button>
+            </div>
+
+            {!loading && filteredCustomers.length === 0 && (
+              <div className="empty-state">
+                <span className="empty-state-icon"><Icon name="users" size={21} /></span>
+                <strong>No customers found</strong>
+                <p>Create a customer profile to open their first account.</p>
+              </div>
+            )}
+
+            <div className="admin-list">
+              {filteredCustomers.map((customer) => (
+                <article className="admin-card" key={customer.id}>
+                  <div
+                    className="admin-card-icon"
+                    style={{ background: 'var(--navy-900)', color: 'var(--gold-400)', fontWeight: 800, fontSize: '0.68rem' }}
+                  >
+                    {initials(customer.name)}
+                  </div>
+                  <div className="admin-card-main">
+                    <span className="admin-card-title">{customer.name}</span>
+                    <span className="admin-card-sub">{customer.email}</span>
+                    <div className="admin-card-meta">
+                      <span className={`badge badge-${statusTone(customer.status)}`}>{customer.status}</span>
+                      <span className="badge badge-neutral">{customer.role}</span>
+                      <span className="badge badge-info">{customer.account_count} acct</span>
+                    </div>
+                  </div>
+                  <div className="admin-card-side">
+                    <span className="admin-card-balance">{formatMoney(customer.total_balance)}</span>
+                    <div className="admin-actions">
+                      <button
+                        className="mini-button"
+                        onClick={() => openEditCustomer(customer)}
+                        aria-label="Edit customer"
+                      >
+                        <Icon name="edit" size={14} />
+                      </button>
+                      <button
+                        className="mini-button danger"
+                        onClick={() => setConfirmDelete({ kind: 'customer', record: customer })}
+                        aria-label="Delete customer"
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+
+        {tab === 'logs' && (
+          <>
+            <div className="admin-toolbar">
+              <div className="input-shell">
+                <select value={logEvent} onChange={(event) => changeLogEvent(event.target.value)}>
+                  {LOG_EVENT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => { setLogPage(0); loadLogs(); }}
+                aria-label="Refresh logs"
+              >
+                <Icon name="refresh" size={15} />
+              </button>
+            </div>
+
+            <form className="admin-toolbar" onSubmit={applyLogFilters}>
+              <div className="input-shell with-icon">
+                <Icon name="search" size={16} className="input-icon" />
+                <input
+                  type="search"
+                  placeholder="Filter by email"
+                  value={logEmail}
+                  onChange={(event) => setLogEmail(event.target.value)}
+                />
+              </div>
+              <button className="btn btn-primary btn-sm" type="submit">Filter</button>
+            </form>
+
+            {logs.length === 0 && (
+              <div className="empty-state">
+                <span className="empty-state-icon"><Icon name="document" size={21} /></span>
+                <strong>No log events</strong>
+                <p>Security and login events will appear here as the app is used.</p>
+              </div>
+            )}
+
+            <div className="admin-list">
+              {logs.map((log) => {
+                const meta = ADMIN_EVENT_META[log.event_type] || {
+                  label: log.event_type,
+                  tone: 'neutral',
+                  icon: 'info',
+                };
+                return (
+                  <article className="log-item" key={log.id}>
+                    <div className={`log-icon ${meta.tone}`}>
+                      <Icon name={meta.icon} size={16} />
+                    </div>
+                    <div className="log-body">
+                      <div className="log-top">
+                        <span className={`badge badge-${meta.tone}`}>{meta.label}</span>
+                        <span className="log-email">{log.email || 'anonymous'}</span>
+                      </div>
+                      <span className="log-meta">
+                        {formatDateTime(log.created_at)} · {log.ip_address || 'unknown IP'}
+                      </span>
+                      {log.details && <span className="log-details">{log.details}</span>}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="pagination">
+              <span>Page {logPage + 1} of {logPages} · {logTotal} events</span>
+              <div className="page-buttons">
+                <button
+                  className="page-button"
+                  disabled={logPage === 0}
+                  onClick={() => setLogPage((page) => Math.max(page - 1, 0))}
+                >
+                  ←
+                </button>
+                <button
+                  className="page-button"
+                  disabled={logPage >= logPages - 1}
+                  onClick={() => setLogPage((page) => Math.min(page + 1, logPages - 1))}
+                >
+                  →
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {editor && (
+        <Modal
+          title={
+            editor.kind === 'account'
+              ? editor.mode === 'create' ? 'Open a new account' : 'Edit account'
+              : editor.mode === 'create' ? 'Create a customer' : 'Edit customer'
           }
-          to {
-            transform: translateX(0);
-            opacity: 1;
+          subtitle={
+            editor.kind === 'account'
+              ? 'Accounts are opened for an existing customer.'
+              : 'Customer profiles can be created and managed here.'
           }
-        }
-      `}</style>
+          onClose={() => (saving ? null : setEditor(null))}
+          footer={
+            <>
+              <button className="btn btn-secondary" onClick={() => setEditor(null)} disabled={saving}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={saveEditor} disabled={saving}>
+                {saving ? 'Saving…' : editor.mode === 'create' ? 'Create' : 'Save changes'}
+              </button>
+            </>
+          }
+        >
+          {editor.error && <div className="form-error">{editor.error}</div>}
+
+          {editor.kind === 'account' ? (
+            <div className="form-grid">
+              {editor.mode === 'create' ? (
+                <div className="field">
+                  <label htmlFor="account-customer">Customer</label>
+                  <div className="input-shell">
+                    <select
+                      id="account-customer"
+                      value={editor.form.userId}
+                      onChange={(event) => updateField('userId', event.target.value)}
+                    >
+                      {customers.map((customer) => (
+                        <option key={customer.id} value={customer.id}>
+                          {customer.name} · {customer.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="field">
+                  <label>Customer</label>
+                  <div className="info-row" style={{ padding: 0 }}>
+                    <span>{editor.record.customer_email}</span>
+                    <strong>{editor.record.customer_name}</strong>
+                  </div>
+                </div>
+              )}
+
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="account-type">Account type</label>
+                  <div className="input-shell">
+                    <select
+                      id="account-type"
+                      value={editor.form.accountType}
+                      onChange={(event) => updateField('accountType', event.target.value)}
+                    >
+                      {ACCOUNT_TYPES.map((type) => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="account-status">Status</label>
+                  <div className="input-shell">
+                    <select
+                      id="account-status"
+                      value={editor.form.status}
+                      onChange={(event) => updateField('status', event.target.value)}
+                    >
+                      {ACCOUNT_STATUSES.map((status) => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="field">
+                <label htmlFor="account-balance">
+                  {editor.mode === 'create' ? 'Opening balance (PHP)' : 'Account balance (PHP)'}
+                </label>
+                <div className="input-shell">
+                  <input
+                    id="account-balance"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editor.form.balance}
+                    onChange={(event) => updateField('balance', event.target.value)}
+                  />
+                </div>
+                <span className="field-hint">This value is stored directly in the dummy database.</span>
+              </div>
+            </div>
+          ) : (
+            <div className="form-grid">
+              <div className="field">
+                <label htmlFor="customer-name">Full name</label>
+                <div className="input-shell">
+                  <input
+                    id="customer-name"
+                    type="text"
+                    value={editor.form.name}
+                    onChange={(event) => updateField('name', event.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="field">
+                <label htmlFor="customer-email">Email address</label>
+                <div className="input-shell">
+                  <input
+                    id="customer-email"
+                    type="email"
+                    value={editor.form.email}
+                    onChange={(event) => updateField('email', event.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="field">
+                <label htmlFor="customer-password">
+                  {editor.mode === 'create' ? 'Initial password' : 'Reset password'}
+                </label>
+                <div className="input-shell">
+                  <input
+                    id="customer-password"
+                    type="text"
+                    placeholder={editor.mode === 'create' ? 'Welcome123' : 'Leave blank to keep current password'}
+                    value={editor.form.password}
+                    onChange={(event) => updateField('password', event.target.value)}
+                  />
+                </div>
+                <span className="field-hint">Passwords are intentionally stored in plain text in this simulation.</span>
+              </div>
+
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="customer-phone">Phone</label>
+                  <div className="input-shell">
+                    <input
+                      id="customer-phone"
+                      type="tel"
+                      value={editor.form.phone}
+                      onChange={(event) => updateField('phone', event.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="customer-role">Role</label>
+                  <div className="input-shell">
+                    <select
+                      id="customer-role"
+                      value={editor.form.role}
+                      onChange={(event) => updateField('role', event.target.value)}
+                    >
+                      {USER_ROLES.map((role) => (
+                        <option key={role} value={role}>{role}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="field">
+                <label htmlFor="customer-address">Address</label>
+                <textarea
+                  id="customer-address"
+                  className="textarea"
+                  value={editor.form.address}
+                  onChange={(event) => updateField('address', event.target.value)}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="customer-status">Status</label>
+                <div className="input-shell">
+                  <select
+                    id="customer-status"
+                    value={editor.form.status}
+                    onChange={(event) => updateField('status', event.target.value)}
+                  >
+                    {USER_STATUSES.map((status) => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {editor.mode === 'create' && (
+                <div className="panel" style={{ padding: 14, gap: 12, background: 'var(--bg)', boxShadow: 'none' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: '0.75rem', fontWeight: 800, color: 'var(--ink-700)' }}>
+                    <input
+                      type="checkbox"
+                      checked={editor.form.createAccount}
+                      onChange={(event) => updateField('createAccount', event.target.checked)}
+                    />
+                    Open a first account for this customer
+                  </label>
+
+                  {editor.form.createAccount && (
+                    <div className="field-row">
+                      <div className="field">
+                        <label htmlFor="new-account-type">Account type</label>
+                        <div className="input-shell">
+                          <select
+                            id="new-account-type"
+                            value={editor.form.accountType}
+                            onChange={(event) => updateField('accountType', event.target.value)}
+                          >
+                            {ACCOUNT_TYPES.map((type) => (
+                              <option key={type} value={type}>{type}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="new-account-balance">Opening balance</label>
+                        <div className="input-shell">
+                          <input
+                            id="new-account-balance"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={editor.form.initialBalance}
+                            onChange={(event) => updateField('initialBalance', event.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {confirmDelete && (
+        <Modal
+          title={confirmDelete.kind === 'account' ? 'Delete account?' : 'Delete customer?'}
+          subtitle="This action cannot be undone."
+          onClose={() => setConfirmDelete(null)}
+          footer={
+            <>
+              <button className="btn btn-secondary" onClick={() => setConfirmDelete(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={removeRecord}>Delete</button>
+            </>
+          }
+        >
+          <div className="panel" style={{ padding: 14, background: 'var(--bg)', boxShadow: 'none' }}>
+            <div className="admin-card-title">
+              {confirmDelete.kind === 'account'
+                ? `${confirmDelete.record.customer_name} · ${confirmDelete.record.account_type}`
+                : confirmDelete.record.name}
+            </div>
+            <div className="admin-card-sub">
+              {confirmDelete.kind === 'account'
+                ? confirmDelete.record.account_number
+                : confirmDelete.record.email}
+            </div>
+          </div>
+          <p style={{ fontSize: '0.74rem', color: 'var(--ink-500)', lineHeight: 1.55 }}>
+            {confirmDelete.kind === 'account'
+              ? 'Deleting an account also removes its transaction history.'
+              : 'Deleting a customer removes their profile, accounts, and transaction history.'}
+          </p>
+        </Modal>
+      )}
     </div>
   );
 }
-
-export default AdminPage;
