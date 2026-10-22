@@ -1,8 +1,9 @@
-const configuredApiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const configuredApiBase = import.meta.env.VITE_API_BASE_URL?.trim() || '';
 
-export const API_BASE_URL = (
-  /^https?:\/\//i.test(configuredApiBase) ? configuredApiBase : `https://${configuredApiBase}`
-).replace(/\/+$/, '');
+export const API_BASE_URL = configuredApiBase
+  ? (/^https?:\/\//i.test(configuredApiBase) ? configuredApiBase : `https://${configuredApiBase}`)
+    .replace(/\/+$/, '')
+  : '';
 
 export const BANK = {
   name: 'Binangonan Banking Corporation',
