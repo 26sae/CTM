@@ -33,8 +33,6 @@ export default function ProfilePage({ user, onLogout, onNavigate }) {
     <div className="sub-page page-full" style={{ background: 'var(--bg)' }}>
       <header className="profile-hero">
         <div className="profile-avatar">{initials(user.name)}</div>
-        {/* DEFENSE — XSS: rendered as text so React escapes any stored HTML.
-            Previously this used dangerouslySetInnerHTML with user.name. */}
         <h1 className="profile-name">{user.name}</h1>
         <p className="profile-email">{user.email}</p>
         <span className="profile-badge">

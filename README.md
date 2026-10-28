@@ -29,16 +29,18 @@ A fictional retail-banking web application built for a **cybersecurity attack si
 - View security logs for successful/failed logins, registrations, and admin actions
 - Filter and paginate logs
 
-## Known security limitations
+## Defensive controls
 
-The following limitations remain in this training application:
+The API includes dependency-free baseline protections for this training application:
 
-1. **No rate limiting or account lockout** — login brute force is unrestricted.
-2. **No server-side authorization** — admin endpoints are open; client-side state is trusted.
-3. **Plaintext passwords** — stored and returned in login responses.
-4. **Raw database errors** — returned to the client.
-5. **Permissive CORS**.
-6. **Unauthenticated admin CRUD endpoints** — intentional IDOR surface.
+- Login attempts are limited to 10 per IP/email key every 15 minutes; other API traffic is limited to 120 requests per IP per minute.
+- JSON and form request bodies are size-limited, transaction results are capped at 100 rows, and search input is bounded.
+- Passwords use Node.js `scrypt`; legacy seeded plaintext passwords are upgraded after a successful login and are never returned to the client.
+- Responses include CSP, `X-Content-Type-Options`, clickjacking, referrer, and permissions-policy headers.
+- CORS only allows `ALLOWED_ORIGINS` (default: localhost Vite/API origins). Set this environment variable to a comma-separated allowlist in deployment.
+- React renders user-controlled profile values as text, so stored names are escaped rather than interpreted as HTML.
+
+The admin endpoints still require proper authentication and authorization before any non-demo deployment. The in-memory rate limiter is intended for a single-instance simulation; use a shared store (such as Redis) behind a reverse proxy for multiple instances and add infrastructure-level DDoS protection.
 
 ## Database setup
 
