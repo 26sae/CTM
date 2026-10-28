@@ -15,6 +15,7 @@ import NotificationsPage from './pages/NotificationsPage';
 import HelpPage from './pages/HelpPage';
 import AboutPage from './pages/AboutPage';
 import AdminPage from './pages/AdminPage';
+import { app } from "./firebase.js";
 
 const SESSION_KEY = 'binangonanbank.user';
 
