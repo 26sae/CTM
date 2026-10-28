@@ -5,13 +5,34 @@ const path = require('path');
 require('dotenv').config();
 const { getDatabaseConfig } = require('./database');
 const { initializeDatabase } = require('./schema');
+const {
+  SECURITY_HARDENING,
+  PASSWORD_MAX_LENGTH,
+  loginIpLimiter,
+  searchIpLimiter,
+  loginLockout,
+  recordLoginFailure,
+  recordLoginSuccess,
+  hashPassword,
+  verifyPassword,
+  needsRehash,
+  sanitizeText,
+} = require('./security');
+
+// When hardening is off, keep the original raw storage so the XSS demo still
+// shows the vulnerable baseline.
+const cleanText = (value, maxLength) =>
+  (SECURITY_HARDENING ? sanitizeText(value, maxLength) : String(value ?? ''));
 
 const app = express();
-app.set('trust proxy', true);
+// Render (and most hosts) sit behind a single proxy. Trusting exactly one hop
+// keeps req.ip accurate without letting clients spoof X-Forwarded-For.
+app.set('trust proxy', 1);
 
 // Intentionally permissive CORS for the simulation environment.
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json());
+// Cap request bodies so oversized payloads cannot be used to exhaust memory.
+app.use(express.json({ limit: '10kb' }));
 // Accept HTML form posts (application/x-www-form-urlencoded) so a cross-site
 // <form> can hit the CSRF-vulnerable endpoint below.
 app.use(express.urlencoded({ extended: true }));
@@ -32,11 +53,7 @@ const db = mysql.createPool({
 });
 
 function clientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length > 0) {
-    return forwarded.split(',')[0].trim();
-  }
-  return req.socket?.remoteAddress || 'unknown';
+  return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
 async function writeLog(eventType, email, req, details) {
@@ -80,11 +97,17 @@ app.post('/api/register', async (req, res) => {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
+  if (password.length > PASSWORD_MAX_LENGTH) {
+    return res.status(400).json({
+      error: `Password must be ${PASSWORD_MAX_LENGTH} characters or fewer`,
+    });
+  }
+
   try {
     const [result] = await db.execute(
       `INSERT INTO users (name, email, password, role, status)
        VALUES (?, ?, ?, 'customer', 'active')`,
-      [name, email, password]
+      [cleanText(name, 120), email, await hashPassword(password)]
     );
     const accountNumber = generateAccountNumber();
 
@@ -99,9 +122,12 @@ app.post('/api/register', async (req, res) => {
 
     await writeLog('register_success', email, req, `New customer id=${result.insertId}`);
 
+    const safeUser = { ...users[0] };
+    delete safeUser.password;
+
     res.status(201).json({
       message: 'Account created successfully',
-      user: users[0],
+      user: safeUser,
       accounts,
     });
   } catch (error) {
@@ -113,25 +139,41 @@ app.post('/api/register', async (req, res) => {
 // ---------------------------------------------------------------------------
 // Login
 // ---------------------------------------------------------------------------
-app.post('/api/login', async (req, res) => {
+async function loginHandler(req, res) {
   const { email = '', password = '' } = req.body;
 
   try {
     const [rows] = await db.execute(
-      'SELECT * FROM users WHERE email = ? AND password = ? LIMIT 1',
-      [email, password]
+      'SELECT * FROM users WHERE email = ? LIMIT 1',
+      [email]
     );
 
-    if (rows.length === 0) {
+    const user = rows[0];
+    // Always run a verification attempt so a missing account costs roughly the
+    // same as a wrong password (no timing-based user enumeration).
+    const passwordOk = user
+      ? await verifyPassword(password, user.password)
+      : await verifyPassword(
+          password,
+          `scrypt$16384$8$1$${'0'.repeat(32)}$${'0'.repeat(128)}`
+        );
+
+    if (!user || !passwordOk) {
+      recordLoginFailure(email);
       await writeLog('login_failed', email, req, 'Invalid email or password');
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const user = rows[0];
-
     if (user.status === 'locked') {
+      recordLoginFailure(email);
       await writeLog('login_failed', email, req, 'Account is locked');
       return res.status(403).json({ error: 'This account is locked. Contact the bank.' });
+    }
+
+    // Transparently upgrade legacy plaintext or older scrypt parameters.
+    if (needsRehash(user.password)) {
+      const upgraded = await hashPassword(password);
+      await db.query('UPDATE users SET password = ? WHERE id = ?', [upgraded, user.id]);
     }
 
     const [accounts] = await db.query(
@@ -139,6 +181,7 @@ app.post('/api/login', async (req, res) => {
       [user.id]
     );
 
+    recordLoginSuccess(email);
     await writeLog('login_success', email, req, `role=${user.role} user_id=${user.id}`);
 
     // INTENTIONAL TRAINING WEAKNESS — set a session cookie the browser will
@@ -147,18 +190,47 @@ app.post('/api/login', async (req, res) => {
     // https cross-domain demo use { sameSite: 'none', secure: true }.
     res.cookie('bb_session', String(user.id), { httpOnly: false, sameSite: 'lax' });
 
-    res.json({ message: 'Login successful', user, accounts });
+    const safeUser = { ...user };
+    delete safeUser.password;
+
+    res.json({ message: 'Login successful', user: safeUser, accounts });
   } catch (error) {
     console.error('Login failed:', error.message);
     res.status(500).json({ error: error.message });
   }
-});
+}
+
+// DEFENSE — brute force: per-IP throttle plus per-account lockout. Both are
+// no-ops when SECURITY_HARDENING=0.
+app.post(
+  '/api/login',
+  loginIpLimiter(async (req) => {
+    await writeLog('login_rate_limited', req.body?.email, req, 'Per-IP login limit reached');
+  }),
+  loginLockout,
+  loginHandler
+);
 
 // ---------------------------------------------------------------------------
 // Transaction search
 // ---------------------------------------------------------------------------
-app.get('/api/transactions/search', async (req, res) => {
+// DEFENSE — denial of service: throttle the expensive search endpoint per IP,
+// reject oversized queries, and cap the request body (see express.json above).
+const searchLimiter = searchIpLimiter(async (req) => {
+  await writeLog(
+    'search_rate_limited',
+    null,
+    req,
+    `query=${String(req.query.query || '').slice(0, 80)}`
+  );
+});
+
+app.get('/api/transactions/search', searchLimiter, async (req, res) => {
   const query = String(req.query.query || '');
+
+  if (query.length > 100) {
+    return res.status(400).json({ error: 'Search query must be 100 characters or fewer' });
+  }
 
   try {
     const [rows] = await db.execute(
@@ -205,7 +277,8 @@ app.put('/api/users/:id', async (req, res) => {
   for (const key of ['name', 'phone', 'address']) {
     if (req.body[key] !== undefined) {
       fields.push(`${key} = ?`);
-      params.push(req.body[key]);
+      // DEFENSE — XSS: stored profile text cannot carry HTML.
+      params.push(cleanText(req.body[key], key === 'address' ? 255 : 120));
     }
   }
 
@@ -234,17 +307,55 @@ app.put('/api/users/:id/password', async (req, res) => {
     return res.status(400).json({ error: 'Current and new passwords are required' });
   }
 
+  if (newPassword.length > PASSWORD_MAX_LENGTH) {
+    return res.status(400).json({
+      error: `Password must be ${PASSWORD_MAX_LENGTH} characters or fewer`,
+    });
+  }
+
   try {
     const [rows] = await db.query('SELECT * FROM users WHERE id = ?', [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
-    if (rows[0].password !== currentPassword) {
+    if (!(await verifyPassword(currentPassword, rows[0].password))) {
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
 
-    await db.query('UPDATE users SET password = ? WHERE id = ?', [newPassword, req.params.id]);
+    await db.query('UPDATE users SET password = ? WHERE id = ?', [
+      await hashPassword(newPassword),
+      req.params.id,
+    ]);
     await writeLog('password_changed', rows[0].email, req, `user_id=${rows[0].id}`);
     res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// INTENTIONAL TRAINING WEAKNESS — whole-API session from the bb_session cookie.
+// Resolves the signed-in user straight from the cookie value (a bare user id),
+// with no signature or verification. Anyone who sets bb_session=<id> becomes
+// that user across the whole app — this is what makes a stolen/injected cookie
+// a full session hijack. Fix: sign the session (e.g. JWT/signed cookie) and
+// verify it server-side; set the cookie HttpOnly.
+app.get('/api/session/me', async (req, res) => {
+  const userId = sessionUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No session cookie' });
+
+  try {
+    const [rows] = await db.query('SELECT * FROM users WHERE id = ? LIMIT 1', [userId]);
+    if (rows.length === 0) return res.status(401).json({ error: 'Invalid session' });
+
+    const user = rows[0];
+    const [accounts] = await db.query(
+      'SELECT * FROM accounts WHERE user_id = ? ORDER BY id ASC',
+      [user.id]
+    );
+
+    const safeUser = { ...user };
+    delete safeUser.password;
+
+    res.json({ user: safeUser, accounts });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -366,7 +477,15 @@ app.post('/api/admin/users', async (req, res) => {
     const [result] = await db.query(
       `INSERT INTO users (name, email, password, role, phone, address, status)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [name, email, password, role, phone, address, status]
+      [
+        cleanText(name, 120),
+        email,
+        await hashPassword(String(password)),
+        role,
+        cleanText(phone, 50),
+        cleanText(address, 255),
+        status,
+      ]
     );
 
     let account = null;
@@ -402,7 +521,17 @@ app.put('/api/admin/users/:id', async (req, res) => {
   for (const key of allowed) {
     if (req.body[key] !== undefined && req.body[key] !== '') {
       fields.push(`${key} = ?`);
-      params.push(req.body[key]);
+      let value;
+
+      if (key === 'password') {
+        value = await hashPassword(String(req.body[key]));
+      } else if (['name', 'phone', 'address'].includes(key)) {
+        value = cleanText(req.body[key], key === 'address' ? 255 : 120);
+      } else {
+        value = req.body[key];
+      }
+
+      params.push(value);
     }
   }
 

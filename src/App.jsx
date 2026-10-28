@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './App.css';
+import { api } from './api';
 import ErrorBoundary from './components/ErrorBoundary';
 import BottomNav from './components/shared/BottomNav';
 import StartupPage from './pages/StartupPage';
@@ -46,6 +47,27 @@ function App() {
 
   const navigate = (to) => setScreen(to);
 
+  // INTENTIONAL TRAINING WEAKNESS — the bb_session cookie is the whole session.
+  // On load, ask the server who the cookie belongs to and adopt that identity.
+  // Inject bb_session=<id> in DevTools, reload, and you are logged in as that
+  // user (e.g. the admin) with no password. Fix: verify a signed session here.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const data = await api('/api/session/me');
+        if (active && data?.user) {
+          persistUser(data.user);
+          setUser(data.user);
+          setScreen(data.user.role === 'admin' ? 'admin' : 'dashboard');
+        }
+      } catch {
+        // No/invalid cookie — keep whatever localStorage already had.
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
   const onLogin = (userData) => {
     persistUser(userData);
     setUser(userData);
@@ -55,6 +77,8 @@ function App() {
   const onLogout = () => {
     persistUser(null);
     setUser(null);
+    // Clear the session cookie too, otherwise a reload would re-adopt it.
+    try { document.cookie = 'bb_session=; Max-Age=0; path=/'; } catch { /* ignore */ }
     navigate('login');
   };
 

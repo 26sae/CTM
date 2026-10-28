@@ -29,16 +29,18 @@ A fictional retail-banking web application built for a **cybersecurity attack si
 - View security logs for successful/failed logins, registrations, and admin actions
 - Filter and paginate logs
 
-## Known security limitations
+## Defensive controls
 
-The following limitations remain in this training application:
+The API includes dependency-free baseline protections for this training application:
 
-1. **No rate limiting or account lockout** — login brute force is unrestricted.
-2. **No server-side authorization** — admin endpoints are open; client-side state is trusted.
-3. **Plaintext passwords** — stored and returned in login responses.
-4. **Raw database errors** — returned to the client.
-5. **Permissive CORS**.
-6. **Unauthenticated admin CRUD endpoints** — intentional IDOR surface.
+- Login attempts are limited to 10 per IP/email key every 15 minutes; other API traffic is limited to 120 requests per IP per minute.
+- JSON and form request bodies are size-limited, transaction results are capped at 100 rows, and search input is bounded.
+- Passwords use Node.js `scrypt`; legacy seeded plaintext passwords are upgraded after a successful login and are never returned to the client.
+- Responses include CSP, `X-Content-Type-Options`, clickjacking, referrer, and permissions-policy headers.
+- CORS only allows `ALLOWED_ORIGINS` (default: localhost Vite/API origins). Set this environment variable to a comma-separated allowlist in deployment.
+- React renders user-controlled profile values as text, so stored names are escaped rather than interpreted as HTML.
+
+The admin endpoints still require proper authentication and authorization before any non-demo deployment. The in-memory rate limiter is intended for a single-instance simulation; use a shared store (such as Redis) behind a reverse proxy for multiple instances and add infrastructure-level DDoS protection.
 
 ## Database setup
 
@@ -153,6 +155,44 @@ node attack.js --mode=all
 ```
 
 Every failed and successful login is written to the `logs` table and appears in the admin back office under **Security logs**.
+
+## Defense
+
+All three attack classes are mitigated by default (`SECURITY_HARDENING=1`). Set `SECURITY_HARDENING=0` and restart to get the vulnerable baseline for a before/after demo.
+
+| Attack | Control | Expected result |
+|---|---|---|
+| Brute force login | 10 attempts/min per IP, plus 5 failures locks that account for 15 min | `401` then `429` |
+| Stored XSS | profile name rendered as text (React escapes) + HTML stripped on every server write | payload stored inert |
+| DoS / request flood | 60 searches/min per IP, 100-char query cap, 10 KB request bodies | `429` / `400` |
+| Credential storage | scrypt (N=16384, r=8, p=1) with per-password salt; legacy plaintext rows are rehashed on next successful login | no plaintext passwords in DB |
+
+Tunables: `LOGIN_MAX_PER_IP`, `LOGIN_WINDOW_MS`, `LOGIN_MAX_FAILURES`, `LOGIN_LOCK_MS`, `SEARCH_MAX_PER_IP`, `SEARCH_WINDOW_MS`.
+
+Verify each defense from Windows PowerShell 5.1 (server running on `http://localhost:5000`):
+
+```powershell
+$env:TARGET = "http://localhost:5000"
+$bad = '{"email":"customer001@binangonanbank.test","password":"wrong-password"}'
+
+# 01 BRUTE FORCE: first attempts 401, then 429 once the limit is hit
+1..12 | ForEach-Object {
+  try { (Invoke-WebRequest -Method POST -Uri "$env:TARGET/api/login" -ContentType "application/json" -Body $bad -UseBasicParsing).StatusCode }
+  catch { [int]$_.Exception.Response.StatusCode }
+}
+
+# 02 XSS: store a payload, read it back and confirm the HTML is gone
+$payload = '{"name":"<img src=x onerror=alert(1)>Eve","phone":"+639000000000","address":"Test"}'
+Invoke-RestMethod -Method PUT -Uri "$env:TARGET/api/users/2" -ContentType "application/json" -Body $payload | Select-Object -ExpandProperty user | Select-Object name
+
+# 03 DENIAL OF SERVICE: burst the search endpoint, most responses become 429
+1..100 | ForEach-Object {
+  try { (Invoke-WebRequest -Uri "$env:TARGET/api/transactions/search?query=a" -UseBasicParsing).StatusCode }
+  catch { [int]$_.Exception.Response.StatusCode }
+} | Group-Object | Select-Object Name, Count
+```
+
+The XSS check must print `Eve` with no `<img` tag, and the DoS check must show `429` counts next to `200`.
 
 ## Important note
 
