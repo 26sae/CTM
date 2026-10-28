@@ -12,6 +12,18 @@ app.set('trust proxy', true);
 // Intentionally permissive CORS for the simulation environment.
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+// Accept HTML form posts (application/x-www-form-urlencoded) so a cross-site
+// <form> can hit the CSRF-vulnerable endpoint below.
+app.use(express.urlencoded({ extended: true }));
+
+// INTENTIONAL TRAINING WEAKNESS — session identity via a plain cookie with no
+// CSRF token and no SameSite=Strict. Reads the signed-in user id straight from
+// the cookie the browser sends automatically.
+function sessionUserId(req) {
+  const raw = req.headers.cookie || '';
+  const match = raw.split(';').map((c) => c.trim()).find((c) => c.startsWith('bb_session='));
+  return match ? decodeURIComponent(match.split('=')[1]) : null;
+}
 
 const db = mysql.createPool({
   ...getDatabaseConfig(),
@@ -129,6 +141,12 @@ app.post('/api/login', async (req, res) => {
 
     await writeLog('login_success', email, req, `role=${user.role} user_id=${user.id}`);
 
+    // INTENTIONAL TRAINING WEAKNESS — set a session cookie the browser will
+    // attach to any later request, including cross-site ones. sameSite:'lax'
+    // keeps it demonstrable between two localhost ports (same site). For an
+    // https cross-domain demo use { sameSite: 'none', secure: true }.
+    res.cookie('bb_session', String(user.id), { httpOnly: false, sameSite: 'lax' });
+
     res.json({ message: 'Login successful', user, accounts });
   } catch (error) {
     console.error('Login failed:', error.message);
@@ -227,6 +245,31 @@ app.put('/api/users/:id/password', async (req, res) => {
     await db.query('UPDATE users SET password = ? WHERE id = ?', [newPassword, req.params.id]);
     await writeLog('password_changed', rows[0].email, req, `user_id=${rows[0].id}`);
     res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// INTENTIONAL TRAINING WEAKNESS — CSRF sink.
+// State-changing endpoint that identifies the user ONLY from the session
+// cookie, accepts a plain form POST, and checks no CSRF token and no Origin.
+// A malicious page the victim visits while logged in can auto-submit:
+//   <form action="http://localhost:5000/api/profile/email" method="POST">
+//     <input name="email" value="attacker@evil.test">
+//   </form>
+//   <script>document.forms[0].submit()</script>
+// Fix: require a per-session CSRF token, or SameSite=Strict + Origin check.
+app.post('/api/profile/email', async (req, res) => {
+  const userId = sessionUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No session cookie' });
+
+  const newEmail = req.body.email;
+  if (!newEmail) return res.status(400).json({ error: 'email is required' });
+
+  try {
+    await db.query('UPDATE users SET email = ? WHERE id = ?', [newEmail, userId]);
+    await writeLog('email_changed', newEmail, req, `user_id=${userId} (no CSRF protection)`);
+    res.json({ message: 'Email updated', userId, email: newEmail });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
