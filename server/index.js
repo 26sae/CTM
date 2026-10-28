@@ -250,6 +250,31 @@ app.put('/api/users/:id/password', async (req, res) => {
   }
 });
 
+// INTENTIONAL TRAINING WEAKNESS — whole-API session from the bb_session cookie.
+// Resolves the signed-in user straight from the cookie value (a bare user id),
+// with no signature or verification. Anyone who sets bb_session=<id> becomes
+// that user across the whole app — this is what makes a stolen/injected cookie
+// a full session hijack. Fix: sign the session (e.g. JWT/signed cookie) and
+// verify it server-side; set the cookie HttpOnly.
+app.get('/api/session/me', async (req, res) => {
+  const userId = sessionUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No session cookie' });
+
+  try {
+    const [rows] = await db.query('SELECT * FROM users WHERE id = ? LIMIT 1', [userId]);
+    if (rows.length === 0) return res.status(401).json({ error: 'Invalid session' });
+
+    const user = rows[0];
+    const [accounts] = await db.query(
+      'SELECT * FROM accounts WHERE user_id = ? ORDER BY id ASC',
+      [user.id]
+    );
+    res.json({ user, accounts });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // INTENTIONAL TRAINING WEAKNESS — CSRF sink.
 // State-changing endpoint that identifies the user ONLY from the session
 // cookie, accepts a plain form POST, and checks no CSRF token and no Origin.
