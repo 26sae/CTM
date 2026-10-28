@@ -154,6 +154,44 @@ node attack.js --mode=all
 
 Every failed and successful login is written to the `logs` table and appears in the admin back office under **Security logs**.
 
+## Defense
+
+All three attack classes are mitigated by default (`SECURITY_HARDENING=1`). Set `SECURITY_HARDENING=0` and restart to get the vulnerable baseline for a before/after demo.
+
+| Attack | Control | Expected result |
+|---|---|---|
+| Brute force login | 10 attempts/min per IP, plus 5 failures locks that account for 15 min | `401` then `429` |
+| Stored XSS | profile name rendered as text (React escapes) + HTML stripped on every server write | payload stored inert |
+| DoS / request flood | 60 searches/min per IP, 100-char query cap, 10 KB request bodies | `429` / `400` |
+| Credential storage | scrypt (N=16384, r=8, p=1) with per-password salt; legacy plaintext rows are rehashed on next successful login | no plaintext passwords in DB |
+
+Tunables: `LOGIN_MAX_PER_IP`, `LOGIN_WINDOW_MS`, `LOGIN_MAX_FAILURES`, `LOGIN_LOCK_MS`, `SEARCH_MAX_PER_IP`, `SEARCH_WINDOW_MS`.
+
+Verify each defense from Windows PowerShell 5.1 (server running on `http://localhost:5000`):
+
+```powershell
+$env:TARGET = "http://localhost:5000"
+$bad = '{"email":"customer001@binangonanbank.test","password":"wrong-password"}'
+
+# 01 BRUTE FORCE: first attempts 401, then 429 once the limit is hit
+1..12 | ForEach-Object {
+  try { (Invoke-WebRequest -Method POST -Uri "$env:TARGET/api/login" -ContentType "application/json" -Body $bad -UseBasicParsing).StatusCode }
+  catch { [int]$_.Exception.Response.StatusCode }
+}
+
+# 02 XSS: store a payload, read it back and confirm the HTML is gone
+$payload = '{"name":"<img src=x onerror=alert(1)>Eve","phone":"+639000000000","address":"Test"}'
+Invoke-RestMethod -Method PUT -Uri "$env:TARGET/api/users/2" -ContentType "application/json" -Body $payload | Select-Object -ExpandProperty user | Select-Object name
+
+# 03 DENIAL OF SERVICE: burst the search endpoint, most responses become 429
+1..100 | ForEach-Object {
+  try { (Invoke-WebRequest -Uri "$env:TARGET/api/transactions/search?query=a" -UseBasicParsing).StatusCode }
+  catch { [int]$_.Exception.Response.StatusCode }
+} | Group-Object | Select-Object Name, Count
+```
+
+The XSS check must print `Eve` with no `<img` tag, and the DoS check must show `429` counts next to `200`.
+
 ## Important note
 
 This repository is a training target. Do not deploy it publicly with real data, and only run the attack script against systems you own or are explicitly authorized to test.
