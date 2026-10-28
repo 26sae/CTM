@@ -556,14 +556,7 @@ export default function AdminPage({ user, onNavigate, onLogout }) {
                     {initials(customer.name)}
                   </div>
                   <div className="admin-card-main">
-                    {/* INTENTIONAL TRAINING WEAKNESS — Stored XSS (cross-user).
-                        A customer controls their own name; the admin back office
-                        renders it here as raw HTML. A low-privilege customer who
-                        saves a payload as their name gets code execution in the
-                        ADMIN's session when the admin opens the Customers list —
-                        customer -> admin account takeover.
-                        Fix: render as text -> {customer.name}. */}
-                    <span className="admin-card-title" dangerouslySetInnerHTML={{ __html: customer.name }} />
+                    <span className="admin-card-title">{customer.name}</span>
                     <span className="admin-card-sub">{customer.email}</span>
                     <div className="admin-card-meta">
                       <span className={`badge badge-${statusTone(customer.status)}`}>{customer.status}</span>
