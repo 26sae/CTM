@@ -239,10 +239,6 @@ async function seedLogs(db, customerEmails) {
       eventType = 'login_success';
       email = pick(customerEmails);
       details = 'Login successful';
-    } else if (roll < 0.95) {
-      eventType = 'sqli_attempt';
-      email = pick(customerEmails);
-      details = `SQL syntax error near "' OR '1'='1' -- "`;
     } else {
       eventType = 'admin_action';
       email = 'admin@binangonanbank.test';

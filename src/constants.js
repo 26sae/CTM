@@ -1,4 +1,13 @@
 const configuredApiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const firebaseConfig = {
+  apiKey: "AIzaSyAdcMpVjg7LwyIqfmo-4Ngt1T0izJi9Adc",
+  authDomain: "ias2-5ca3c.firebaseapp.com",
+  projectId: "ias2-5ca3c",
+  storageBucket: "ias2-5ca3c.firebasestorage.app",
+  messagingSenderId: "26556919240",
+  appId: "1:26556919240:web:e1fe3f87ca122d455a64fd",
+  measurementId: "G-X3752QLMKP"
+};
 
 export const API_BASE_URL = (
   /^https?:\/\//i.test(configuredApiBase) ? configuredApiBase : `https://${configuredApiBase}`

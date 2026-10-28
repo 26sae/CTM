@@ -27,10 +27,6 @@ function clientIp(req) {
   return req.socket?.remoteAddress || 'unknown';
 }
 
-function looksLikeInjection(value) {
-  return /('|--|#|\/\*|\bOR\b|\bUNION\b|\bSELECT\b)/i.test(String(value || ''));
-}
-
 async function writeLog(eventType, email, req, details) {
   try {
     await db.query(
@@ -65,9 +61,6 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// VULNERABLE REGISTER (SQL injection enabled by string concatenation)
-// ---------------------------------------------------------------------------
 app.post('/api/register', async (req, res) => {
   const { name = '', email, password } = req.body;
 
@@ -75,15 +68,12 @@ app.post('/api/register', async (req, res) => {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  if (looksLikeInjection(email) || looksLikeInjection(name)) {
-    await writeLog('sqli_attempt', email, req, `Registration payload: name=${name} email=${email}`);
-  }
-
-  const sql = `INSERT INTO users (name, email, password, role, status)
-               VALUES ('${name}', '${email}', '${password}', 'customer', 'active')`;
-
   try {
-    const [result] = await db.query(sql);
+    const [result] = await db.execute(
+      `INSERT INTO users (name, email, password, role, status)
+       VALUES (?, ?, ?, 'customer', 'active')`,
+      [name, email, password]
+    );
     const accountNumber = generateAccountNumber();
 
     await db.query(
@@ -103,26 +93,22 @@ app.post('/api/register', async (req, res) => {
       accounts,
     });
   } catch (error) {
-    await writeLog('sqli_attempt', email, req, `${error.message} | ${sql}`);
+    console.error('Registration failed:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 // ---------------------------------------------------------------------------
-// VULNERABLE LOGIN (SQL injection enabled, no lockout/rate limiting)
-// Try: ' OR '1'='1' -- 
+// Login
 // ---------------------------------------------------------------------------
 app.post('/api/login', async (req, res) => {
   const { email = '', password = '' } = req.body;
 
-  if (looksLikeInjection(email) || looksLikeInjection(password)) {
-    await writeLog('sqli_attempt', email, req, `Login payload: email=${email} password=${password}`);
-  }
-
-  const query = `SELECT * FROM users WHERE email = '${email}' AND password = '${password}' LIMIT 1`;
-
   try {
-    const [rows] = await db.query(query);
+    const [rows] = await db.execute(
+      'SELECT * FROM users WHERE email = ? AND password = ? LIMIT 1',
+      [email, password]
+    );
 
     if (rows.length === 0) {
       await writeLog('login_failed', email, req, 'Invalid email or password');
@@ -145,36 +131,33 @@ app.post('/api/login', async (req, res) => {
 
     res.json({ message: 'Login successful', user, accounts });
   } catch (error) {
-    await writeLog('sqli_attempt', email, req, `${error.message} | ${query}`);
+    console.error('Login failed:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 // ---------------------------------------------------------------------------
-// VULNERABLE TRANSACTION SEARCH (SQL injection enabled)
+// Transaction search
 // ---------------------------------------------------------------------------
 app.get('/api/transactions/search', async (req, res) => {
-  const query = req.query.query || '';
-
-  if (looksLikeInjection(query)) {
-    await writeLog('sqli_attempt', null, req, `Search payload: ${query}`);
-  }
-
-  const sql = `SELECT t.*, a.account_number, u.name AS customer_name
-               FROM transactions t
-               JOIN accounts a ON a.id = t.account_id
-               JOIN users u ON u.id = a.user_id
-               WHERE t.ref_number = '${query}'
-                  OR t.description LIKE '%${query}%'
-                  OR t.category = '${query}'
-               ORDER BY t.created_at DESC
-               LIMIT 100`;
+  const query = String(req.query.query || '');
 
   try {
-    const [rows] = await db.query(sql);
+    const [rows] = await db.execute(
+      `SELECT t.*, a.account_number, u.name AS customer_name
+       FROM transactions t
+       JOIN accounts a ON a.id = t.account_id
+       JOIN users u ON u.id = a.user_id
+       WHERE t.ref_number = ?
+          OR t.description LIKE ?
+          OR t.category = ?
+       ORDER BY t.created_at DESC
+       LIMIT 100`,
+      [query, `%${query}%`, query]
+    );
     res.json(rows);
   } catch (error) {
-    await writeLog('sqli_attempt', null, req, `${error.message} | ${sql}`);
+    console.error('Transaction search failed:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

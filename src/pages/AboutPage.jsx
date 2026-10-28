@@ -44,7 +44,7 @@ export default function AboutPage({ onNavigate }) {
           </div>
           <p style={{ fontSize: '0.74rem', lineHeight: 1.65, color: 'var(--ink-500)' }}>
             Binangonan Banking Corporation is a dummy retail banking application created to demonstrate
-            authentication weaknesses, SQL injection, credential stuffing, and denial-of-service exposure.
+            authentication weaknesses, credential stuffing, and denial-of-service exposure.
             It is not affiliated with any real financial institution.
           </p>
           <div className="form-error">
