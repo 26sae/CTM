@@ -15,6 +15,7 @@ require('dotenv').config();
 const mysql = require('mysql2/promise');
 const { getDatabaseConfig } = require('./server/database');
 const { initializeDatabase } = require('./server/schema');
+const { hashPassword } = require('./server/security');
 
 const ROWS_TO_INSERT = 5000;
 const BATCH_SIZE = 500;
@@ -158,7 +159,7 @@ async function insertUser(db, user) {
   const [result] = await db.query(
     `INSERT INTO users (name, email, password, role, phone, address, status)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [user.name, user.email, user.password, user.role, user.phone, user.address, 'active']
+    [user.name, user.email, hashPassword(user.password), user.role, user.phone, user.address, 'active']
   );
   return result.insertId;
 }

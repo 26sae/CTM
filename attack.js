@@ -8,7 +8,7 @@
 //   node attack.js --mode=all     Run every mode in sequence
 //
 // Environment:
-//   TARGET=http://localhost:5000
+//   TARGET=https://ctm-bank.onrender.com'
 //   DURATION_MS=4000
 //   CONCURRENCY=10
 //   REQUESTS_PER_TICK=50
@@ -20,7 +20,7 @@ const axios = require('axios');
 const http = require('http');
 const https = require('https');
 
-const BASE_URL = (process.env.TARGET || 'http://localhost:5000').replace(/\/+$/, '');
+const BASE_URL = (process.env.TARGET || 'https://ctm-bank.onrender.com').replace(/\/+$/, '');
 const DURATION_MS = Number(process.env.DURATION_MS || 4000);
 const CONCURRENCY = Math.max(Number(process.env.CONCURRENCY || 10), 1);
 const REQUESTS_PER_TICK = Math.max(Number(process.env.REQUESTS_PER_TICK || 50), 1);

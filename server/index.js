@@ -5,16 +5,56 @@ const path = require('path');
 require('dotenv').config();
 const { getDatabaseConfig } = require('./database');
 const { initializeDatabase } = require('./schema');
+const {
+  clientIp,
+  createRateLimiter,
+  hashPassword,
+  isPasswordHash,
+  verifyPassword,
+} = require('./security');
 
 const app = express();
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
 
-// Intentionally permissive CORS for the simulation environment.
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json());
-// Accept HTML form posts (application/x-www-form-urlencoded) so a cross-site
-// <form> can hit the CSRF-vulnerable endpoint below.
-app.use(express.urlencoded({ extended: true }));
+const allowedOrigins = new Set(
+  (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:5000')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+);
+
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error('Origin is not allowed'));
+  },
+  credentials: true,
+}));
+app.use((req, res, next) => {
+  res.set({
+    'Content-Security-Policy': "default-src 'self'; connect-src 'self' http://localhost:5000 http://localhost:5173; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  });
+  if (req.secure) res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+app.use(express.json({ limit: '32kb' }));
+app.use(express.urlencoded({ extended: false, limit: '16kb', parameterLimit: 50 }));
+
+const apiRateLimit = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 120,
+  keyGenerator: clientIp,
+});
+const loginRateLimit = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyGenerator: (req) => `${clientIp(req)}:${String(req.body?.email || '').trim().toLowerCase()}`,
+});
+app.use('/api', apiRateLimit);
 
 // INTENTIONAL TRAINING WEAKNESS — session identity via a plain cookie with no
 // CSRF token and no SameSite=Strict. Reads the signed-in user id straight from
@@ -30,14 +70,6 @@ const db = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
 });
-
-function clientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length > 0) {
-    return forwarded.split(',')[0].trim();
-  }
-  return req.socket?.remoteAddress || 'unknown';
-}
 
 async function writeLog(eventType, email, req, details) {
   try {
@@ -75,16 +107,21 @@ app.get('/api/health', async (_req, res) => {
 
 app.post('/api/register', async (req, res) => {
   const { name = '', email, password } = req.body;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedName = String(name).trim();
 
-  if (!email || !password) {
+  if (!normalizedEmail || !password || !normalizedName) {
     return res.status(400).json({ error: 'Email and password are required' });
+  }
+  if (normalizedName.length > 100 || normalizedEmail.length > 255 || String(password).length > 128) {
+    return res.status(400).json({ error: 'Registration details are too long' });
   }
 
   try {
     const [result] = await db.execute(
       `INSERT INTO users (name, email, password, role, status)
        VALUES (?, ?, ?, 'customer', 'active')`,
-      [name, email, password]
+      [normalizedName, normalizedEmail, hashPassword(String(password))]
     );
     const accountNumber = generateAccountNumber();
 
@@ -97,37 +134,48 @@ app.post('/api/register', async (req, res) => {
     const [users] = await db.query('SELECT * FROM users WHERE id = ?', [result.insertId]);
     const [accounts] = await db.query('SELECT * FROM accounts WHERE user_id = ?', [result.insertId]);
 
-    await writeLog('register_success', email, req, `New customer id=${result.insertId}`);
+    await writeLog('register_success', normalizedEmail, req, `New customer id=${result.insertId}`);
 
     res.status(201).json({
       message: 'Account created successfully',
-      user: users[0],
+      user: { ...users[0], password: undefined },
       accounts,
     });
   } catch (error) {
     console.error('Registration failed:', error.message);
-    res.status(500).json({ error: error.message });
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'An account with that email already exists' });
+    }
+    res.status(500).json({ error: 'Unable to create account' });
   }
 });
 
 // ---------------------------------------------------------------------------
 // Login
 // ---------------------------------------------------------------------------
-app.post('/api/login', async (req, res) => {
-  const { email = '', password = '' } = req.body;
+app.post('/api/login', loginRateLimit, async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+
+  if (!email || password.length === 0 || password.length > 128) {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
 
   try {
     const [rows] = await db.execute(
-      'SELECT * FROM users WHERE email = ? AND password = ? LIMIT 1',
-      [email, password]
+      'SELECT * FROM users WHERE email = ? LIMIT 1',
+      [email]
     );
 
-    if (rows.length === 0) {
+    if (rows.length === 0 || !verifyPassword(password, rows[0].password)) {
       await writeLog('login_failed', email, req, 'Invalid email or password');
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     const user = rows[0];
+    if (!isPasswordHash(user.password)) {
+      await db.query('UPDATE users SET password = ? WHERE id = ?', [hashPassword(password), user.id]);
+    }
 
     if (user.status === 'locked') {
       await writeLog('login_failed', email, req, 'Account is locked');
@@ -145,9 +193,14 @@ app.post('/api/login', async (req, res) => {
     // attach to any later request, including cross-site ones. sameSite:'lax'
     // keeps it demonstrable between two localhost ports (same site). For an
     // https cross-domain demo use { sameSite: 'none', secure: true }.
-    res.cookie('bb_session', String(user.id), { httpOnly: false, sameSite: 'lax' });
+    res.setHeader(
+      'Set-Cookie',
+      `bb_session=${encodeURIComponent(String(user.id))}; HttpOnly; SameSite=Strict; Path=/`
+    );
 
-    res.json({ message: 'Login successful', user, accounts });
+    const safeUser = { ...user };
+    delete safeUser.password;
+    res.json({ message: 'Login successful', user: safeUser, accounts });
   } catch (error) {
     console.error('Login failed:', error.message);
     res.status(500).json({ error: error.message });
@@ -158,7 +211,8 @@ app.post('/api/login', async (req, res) => {
 // Transaction search
 // ---------------------------------------------------------------------------
 app.get('/api/transactions/search', async (req, res) => {
-  const query = String(req.query.query || '');
+  const query = String(req.query.query || '').trim().slice(0, 100);
+  if (!query) return res.json([]);
 
   try {
     const [rows] = await db.execute(
@@ -233,16 +287,22 @@ app.put('/api/users/:id/password', async (req, res) => {
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Current and new passwords are required' });
   }
+  if (String(currentPassword).length > 128 || String(newPassword).length > 128) {
+    return res.status(400).json({ error: 'Password is too long' });
+  }
 
   try {
     const [rows] = await db.query('SELECT * FROM users WHERE id = ?', [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
-    if (rows[0].password !== currentPassword) {
+    if (!verifyPassword(String(currentPassword), rows[0].password)) {
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
 
-    await db.query('UPDATE users SET password = ? WHERE id = ?', [newPassword, req.params.id]);
+    await db.query(
+      'UPDATE users SET password = ? WHERE id = ?',
+      [hashPassword(String(newPassword)), req.params.id]
+    );
     await writeLog('password_changed', rows[0].email, req, `user_id=${rows[0].id}`);
     res.json({ message: 'Password updated successfully' });
   } catch (error) {
@@ -294,7 +354,8 @@ app.get('/api/accounts', async (req, res) => {
 
 app.get('/api/transactions', async (req, res) => {
   const { accountId, userId } = req.query;
-  const limit = Math.min(Number(req.query.limit) || 200, 500);
+  const parsedLimit = Number.parseInt(req.query.limit, 10);
+  const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 100;
   const params = [];
   let sql = `SELECT t.*, a.account_number, u.name AS customer_name
              FROM transactions t
@@ -366,7 +427,7 @@ app.post('/api/admin/users', async (req, res) => {
     const [result] = await db.query(
       `INSERT INTO users (name, email, password, role, phone, address, status)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [name, email, password, role, phone, address, status]
+      [name, email, hashPassword(String(password)), role, phone, address, status]
     );
 
     let account = null;
@@ -402,7 +463,7 @@ app.put('/api/admin/users/:id', async (req, res) => {
   for (const key of allowed) {
     if (req.body[key] !== undefined && req.body[key] !== '') {
       fields.push(`${key} = ?`);
-      params.push(req.body[key]);
+      params.push(key === 'password' ? hashPassword(String(req.body[key])) : req.body[key]);
     }
   }
 
@@ -588,6 +649,18 @@ app.use(express.static(path.join(__dirname, '../dist')));
 
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, '../dist', 'index.html'));
+});
+
+app.use((error, _req, res, _next) => {
+  void _next;
+  if (error instanceof SyntaxError && error.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Invalid JSON request body' });
+  }
+  if (error.message === 'Origin is not allowed') {
+    return res.status(403).json({ error: 'Origin is not allowed' });
+  }
+  console.error('Unhandled request error:', error.message);
+  return res.status(500).json({ error: 'Request failed' });
 });
 
 const port = Number(process.env.PORT) || 5000;

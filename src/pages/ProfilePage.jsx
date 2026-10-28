@@ -33,13 +33,7 @@ export default function ProfilePage({ user, onLogout, onNavigate }) {
     <div className="sub-page page-full" style={{ background: 'var(--bg)' }}>
       <header className="profile-hero">
         <div className="profile-avatar">{initials(user.name)}</div>
-        {/* INTENTIONAL TRAINING WEAKNESS — Stored XSS sink.
-            user.name is attacker-controlled (set at registration and in Edit
-            Profile) and rendered here as raw HTML instead of escaped text.
-            Payload example to store as your name:
-              <img src=x onerror="alert(document.cookie)">
-            Remove dangerouslySetInnerHTML to fix (React escapes by default). */}
-        <h1 className="profile-name" dangerouslySetInnerHTML={{ __html: user.name }} />
+        <h1 className="profile-name">{user.name}</h1>
         <p className="profile-email">{user.email}</p>
         <span className="profile-badge">
           <Icon name="shield" size={11} />
